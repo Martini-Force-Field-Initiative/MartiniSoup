@@ -11,7 +11,7 @@ Includes:
 
 import numpy as np
 from collections import Counter
-from .utils import binned_histogram, bootstrap_ci
+from utils import binned_histogram, bootstrap_ci
 
 
 class ResidenceAnalysis:

@@ -15,9 +15,9 @@ This package provides:
 from .data_structures import BoundState, MetaboliteResidences
 from .analysis import ResidenceAnalysis
 from .models import KineticModels
-from . import utils
+from .utils import *
 from .trajectory import TrajectoryAnalyzer
-from .cli import main as cli_main
+from .cli import main
 
 __all__ = [
     "BoundState",

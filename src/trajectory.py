@@ -1,6 +1,6 @@
 from tqdm import tqdm
 from scipy.spatial import cKDTree as KDTree
-from .data_structures import BoundState, MetaboliteResidences
+from data_structures import BoundState, MetaboliteResidences
 import pickle
 
 class TrajectoryAnalyzer:

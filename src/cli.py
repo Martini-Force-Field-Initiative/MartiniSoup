@@ -5,7 +5,7 @@ Command-line interface for binding_analysis.
 import argparse
 import pickle
 from MDAnalysis import Universe
-from .trajectory import TrajectoryAnalyzer
+from trajectory import TrajectoryAnalyzer
 
 def main():
     parser = argparse.ArgumentParser(
@@ -58,6 +58,5 @@ def main():
 
     print(f"Analysis complete. Results saved to {args.output}")
 
-# Allow command-line execution via python -m binding_analysis
 if __name__ == "__main__":
     main()

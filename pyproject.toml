@@ -1,25 +1,23 @@
-[project]
-name = "binding_analysis"
-version = "0.1.0"
-description = "Tools for analyzing metabolite–protein residence times in molecular dynamics simulations."
-authors = [
-    { name = "Your Name", email = "you@example.com" }
-]
-readme = "README.md"
-license = { text = "MIT" }
-requires-python = ">=3.10"
-
-dependencies = [
-    "numpy",
-    "lmfit",
-    "MDAnalysis",
-    "scipy"
-]
-
 [build-system]
 requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[project.scripts]
-binding-analysis = "src.cli:main"
+[project]
+name = "binding_analysis"
+version = "0.1.0"
+description = "Tools for metabolite-protein residence time analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "lmfit",
+    "MDAnalysis",
+    "tqdm",
+    "scipy"
+]
 
+[project.scripts]
+binding-analysis = "cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
