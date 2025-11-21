@@ -17,6 +17,7 @@ from .analysis import ResidenceAnalysis
 from .models import KineticModels
 from . import utils
 from .trajectory import TrajectoryAnalyzer
+from .cli import main as cli_main
 
 __all__ = [
     "BoundState",
