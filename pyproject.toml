@@ -21,5 +21,5 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-binding-analysis = "binding_analysis.cli:main"
+binding-analysis = "src.cli:main"
 
