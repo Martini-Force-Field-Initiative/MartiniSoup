@@ -1,89 +1,81 @@
 from tqdm import tqdm
 from scipy.spatial import cKDTree as KDTree
 from data_structures import BoundState, MetaboliteResidences
-import pickle
 
 class TrajectoryAnalyzer:
-    """
-    Analyze MD trajectories to detect metabolite-protein binding events.
-
-    Parameters
-    ----------
-    u : MDAnalysis.Universe
-        The MDAnalysis universe containing trajectory and topology.
-    metabolites : MDAnalysis AtomGroup
-        AtomGroup for metabolites.
-    proteins : MDAnalysis AtomGroup
-        AtomGroup for proteins.
-    cutoff : float
-        Distance cutoff (Angstrom) to define binding.
-    start : int
-        First frame to analyze.
-    stop : int
-        Last frame to analyze.
-    step : int
-        Frame step size.
-    """
-
-    def __init__(self, u, metabolites, proteins, cutoff=4.0, start=None, stop=None, step=1):
+    def __init__(self, u, metabolites, proteins, cutoff=4.0,
+                 start=0, stop=None, step=1, use_time=False):
+        """
+        use_time: if True, durations are in physical time (ts.time),
+                  otherwise durations are in frame counts (ts.frame).
+        """
         self.u = u
         self.metabolites = metabolites
         self.proteins = proteins
         self.cutoff = cutoff
-        self.start = start if start is not None else int(len(u.trajectory) / 2)
+        self.start = start
         self.stop = stop if stop is not None else len(u.trajectory)
         self.step = step
+        self.use_time = use_time
 
-        self.n_metabolites = len(metabolites)
-        # Assuming each metabolite atom has a moltype_id and molecule index
-        self.moltypes = [getattr(atom, 'moltype_id', None) for atom in metabolites]
-        self.molnums = [getattr(atom, 'molnum', None) for atom in metabolites]
+        # build moltype mapping (per-atom)
+        unique = {}
+        moltype_table = []
+        moltype_ids = []
+        for mt in metabolites.moltypes:          # MDAnalysis per-atom property
+            if mt not in unique:
+                unique[mt] = len(moltype_table)
+                moltype_table.append(mt)
+            moltype_ids.append(unique[mt])
 
-    def analyze(self, savepath='.'):
-        """
-        Run the trajectory analysis and return atom-level BoundState tracker
-        and a MetaboliteResidences object.
-        """
-        # Initialize tracker
-        tracker = {i: BoundState(moltype_id=mt) for i, mt in enumerate(self.moltypes)}
+        self.moltype_ids = moltype_ids     # list, len = n_metabolite_atoms
+        self.moltype_table = moltype_table # list: id -> name
 
+    def analyze(self):
+        n_atoms = len(self.metabolites)
+        # initialize tracker with moltype ids
+        tracker = {i: BoundState(moltype_id=self.moltype_ids[i]) for i in range(n_atoms)}
+
+        # iterate trajectory
+        last_stamp = None
         for ts in tqdm(self.u.trajectory[self.start:self.stop:self.step], desc="Analyzing trajectory"):
-            # Build periodic KDTree for protein and metabolite positions
+            # choose stamp to record (frame index or time)
+            stamp = ts.time if self.use_time else ts.frame
+            last_stamp = stamp
+
+            # build periodic KDTree for protein and metabolite positions
+            # note: KDTree(..., boxsize=...) expects boxsize as scalar or array -> use u.dimensions[:3]
             protein_tree = KDTree(self.proteins.positions, boxsize=self.u.dimensions[:3])
             metabolite_tree = KDTree(self.metabolites.positions, boxsize=self.u.dimensions[:3])
 
-            # Compute sparse distance matrix with cutoff
+            # sparse distance matrix: keys are (i_from_protein, j_from_metabolite)
             sdm = protein_tree.sparse_distance_matrix(metabolite_tree, self.cutoff)
 
-            # Convert sparse distance matrix keys to metabolite atom indices
-            bound_atoms = set(j for (_, j), dist in sdm.items())
+            # collect metabolite atom indices that are within cutoff of any protein atom
+            # sdm is a dict-like: keys -> (i_protein, j_metabolite)
+            bound_met_atoms = {pair[1] for pair in sdm.keys()}  # set of metabolite indices
 
-            # Update tracker
+            # update each atom's BoundState
             for atom_idx, state in tracker.items():
-                if atom_idx in bound_atoms:
-                    if not state.bound:
-                        # New binding event
-                        state.bound = True
-                        state.start = ts.frame
-                else:
-                    if state.bound:
-                        # Event ended
-                        duration = ts.frame - state.start
-                        state.durations.append(duration)
-                        state.bound = False
-                        state.start = None
+                is_bound = (atom_idx in bound_met_atoms)
+                state.update_bound(is_bound, stamp)
 
-        # Ensure any remaining bound states are closed at the end
+        # finalize any open events using the last stamp seen
+        if last_stamp is None:
+            # no frames processed; nothing to finalize
+            final_stamp = 0
+        else:
+            final_stamp = last_stamp
+
         for state in tracker.values():
-            if state.bound:
-                duration = ts.frame - state.start
-                state.durations.append(duration)
-                state.bound = False
-                state.start = None
+            state.finalize(final_stamp)
 
-        # Construct MetaboliteResidences object
-        residues = MetaboliteResidences(tracker, self.molnums, moltype_table=None)
-        if savepath:
-            with open(savepath, 'wb') as f:
-                pickle.dump(residues, f)
+        # Build MetaboliteResidences, including moltype_table and moltype_ids
+        residues = MetaboliteResidences(
+            tracker=tracker,
+            molnums=list(self.metabolites.molnums),   # ensure serializable list-like
+            moltype_table={i: name for i, name in enumerate(self.moltype_table)},
+            moltype_ids=list(self.moltype_ids),
+        ).make_type_agg_named()
+
         return residues

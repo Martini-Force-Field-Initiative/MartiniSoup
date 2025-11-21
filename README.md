@@ -15,19 +15,32 @@ pip install .
 ```
 
 ## Usage Example
+
+### Command line example
+A dataset containing all binding event times per metabolite can be generated with 
+the following command:
+
+```commandline
+binding-analysis \
+    topology.pdb trajectory.xtc \
+    --metabolite-selection "resname ATP ADP AMP" \
+    --protein-selection "protein" \
+    --cutoff 5.0 \
+    --output results.p
+```
+
+The results can then be investigated further by opening them with a script:
+
 ```python
-from binding_analysis import TrajectoryAnalyzer, ResidenceAnalysis, KineticModels
+import pickle
 
-# set up the groups
-u = MDAnalysis.Universe(topology, trajectory)
-metabolites = u.select_atoms("resname ATP")
-proteins = u.select_atoms("protein")
+with open("results.p", "rb") as f:
+    type_agg_named = pickle.load(f)
 
-analyzer = TrajectoryAnalyzer(u, metabolites, proteins, cutoff=4.0)
-residences = analyzer.analyze()
-
-analysis = ResidenceAnalysis(residences)
-sc = analysis.survival_curve(moltype_id=0)
-fit = KineticModels.fit_exponential(sc["time"], sc["survival"])
-print(fit.fit_report())
+# Example:
+print(list(type_agg_named.keys()))   # ['ATP', 'ADP', 'AMP']
+for molecule, n_events in type_agg_named.items():
+    print(f"Number of {molecule} events:", len(n_events))
+# Number of ATP events: 10
+# ...
 ```

@@ -6,6 +6,7 @@ import argparse
 import pickle
 from MDAnalysis import Universe
 from trajectory import TrajectoryAnalyzer
+from MDAnalysis import transformations
 
 def main():
     parser = argparse.ArgumentParser(
@@ -17,7 +18,7 @@ def main():
                         help="MDAnalysis atom selection string for metabolites")
     parser.add_argument("--protein-selection", default=None,
                         help="MDAnalysis atom selection string for proteins")
-    parser.add_argument("--cutoff", type=float, default=4.0,
+    parser.add_argument("--cutoff", type=float, default=5.0,
                         help="Distance cutoff in Angstrom")
     parser.add_argument("--start", type=int, default=0,
                         help="Start frame")
@@ -38,9 +39,14 @@ def main():
         protein_selection = 'resname GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
     else:
         protein_selection = 'protein'
-
     # Load universe
+    print("Loading universe...")
     u = Universe(args.topology, args.trajectory)
+    # make sure all atoms are in the box
+    ag = u.atoms
+    transform = transformations.wrap(ag)
+    u.trajectory.add_transformations(transform)
+
     metabolites = u.select_atoms(metabolite_selection)
     proteins = u.select_atoms(protein_selection)
 
