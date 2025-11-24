@@ -59,11 +59,11 @@ def main():
     u = mda.Universe(args.topology, args.trajectory)
 
     # sort out the selections for the metabolites and proteins
-    if not args.metabolite_selection:
+    if not args.metab_sel:
         metabolite_selection = 'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
     else:
         metabolite_selection = 'resname ATP'
-    if not args.protein_selection:
+    if not args.protein_sel:
         protein_selection = 'resname GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
     else:
         protein_selection = 'protein'

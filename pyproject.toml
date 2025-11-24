@@ -13,7 +13,8 @@ dependencies = [
     "lmfit",
     "MDAnalysis",
     "tqdm",
-    "scipy"
+    "scipy",
+    "freud-analysis"
 ]
 
 [project.scripts]
