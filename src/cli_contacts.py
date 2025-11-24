@@ -101,9 +101,13 @@ def main():
         metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
 
     protein_results = {}
+    system_protein_counts = {}
     for protein_name, protein_counts in counts.items():
         metabolite_hits = {}
+
         n_protein_monomers = protein_types[protein_name]['n_monomers']
+        system_protein_counts[protein_name] = n_protein_monomers
+
         for metabolite, c in protein_counts.items():
             # Normalize by number of protein monomers and metabolite count
             # This gives: contacts per protein monomer per metabolite
@@ -111,13 +115,12 @@ def main():
             metabolite_hits[str(metabolite)] = {'count': c,
                                                 'normalised_count': normalised_count}
         # sorting the order of the keys may be useful if someone wants to save results as a json or whatever
-        protein_results[protein_name] = {'n_monomers': n_protein_monomers,
-                                         'metabolite_counts': dict(sorted(metabolite_hits.items()))
-                                         }
+        protein_results[protein_name] = dict(sorted(metabolite_hits.items()))
 
     # results for the system.
     results = {'protein_results': protein_results,
-               'metabolite_counts': metabolite_counts}
+               'n_metabolites': metabolite_counts,
+               'n_proteins': system_protein_counts}
 
     # Save pickle if requested
     if args.pickle_out:
