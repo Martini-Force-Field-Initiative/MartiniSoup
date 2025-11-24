@@ -56,7 +56,7 @@ def main():
                                   start=args.start,
                                   stop=args.stop,
                                   step=args.step)
-    residues = analyzer.analyze()
+    residues = analyzer.run()
 
     # Save molecule-level output
     with open(args.output, "wb") as f:

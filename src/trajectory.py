@@ -31,7 +31,7 @@ class TrajectoryAnalyzer:
         self.moltype_ids = moltype_ids     # list, len = n_metabolite_atoms
         self.moltype_table = moltype_table # list: id -> name
 
-    def analyze(self):
+    def run(self):
         n_atoms = len(self.metabolites)
         # initialize tracker with moltype ids
         tracker = {i: BoundState(moltype_id=self.moltype_ids[i]) for i in range(n_atoms)}
