@@ -110,6 +110,7 @@ def main():
             normalised_count = c / (n_protein_monomers * metabolite_counts[str(metabolite)])
             metabolite_hits[str(metabolite)] = {'count': c,
                                                 'normalised_count': normalised_count}
+        # sorting the order of the keys may be useful if someone wants to save results as a json or whatever
         protein_results[protein_name] = {'n_monomers': n_protein_monomers,
                                          'metabolite_counts': dict(sorted(metabolite_hits.items()))
                                          }
