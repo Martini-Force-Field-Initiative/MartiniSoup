@@ -95,11 +95,31 @@ def main():
             cutoff_radius=args.cutoff
         )
 
+    # Calculate metabolite concentrations
+    metabolite_counts = {}
+    for resname in metabolites.residues.resnames:
+        metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
+
+    # Convert to DataFrame
+    data = {}
+    for protein_name, counts in counts.items():
+        metabolite_dict = {}
+        for resname, count in counts.items():
+            # Normalize by number of protein monomers and metabolite count
+            # This gives: contacts per protein monomer per metabolite
+            normalized_count = count / (protein_types[protein_name][1] * metabolite_counts[resname])
+
+            metabolite_dict[protein_name] = {'metabolite': resname,
+                                             'count': count,
+                                             'normalized_count': normalized_count
+                                             }
+        data[protein_name] = metabolite_dict
+
     # Save pickle if requested
     if args.pickle_out:
         pickle_path = Path(args.pickle_out)
         with open(pickle_path, "wb") as f:
-            pickle.dump(counts, f)
+            pickle.dump(data, f)
         print(f"Saved results to {pickle_path}")
 
 if __name__ == "__main__":

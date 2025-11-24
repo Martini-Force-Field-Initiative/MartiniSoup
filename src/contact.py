@@ -1,7 +1,5 @@
 """
-contact.py
-
-Efficient metabolite–protein contact analysis using freud AABBQuery,
+Metabolite–protein contact analysis using freud AABBQuery,
 with optional parallel execution and metadata-rich output.
 
 The input protein_types dictionary must have the form:
