@@ -111,7 +111,7 @@ def main():
             metabolite_hits[str(metabolite)] = {'count': c,
                                                 'normalised_count': normalised_count}
         protein_results[protein_name] = {'n_monomers': n_protein_monomers,
-                                         'metabolite_counts': metabolite_hits
+                                         'metabolite_counts': dict(sorted(metabolite_hits.items()))
                                          }
 
     # results for the system.
