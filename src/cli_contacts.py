@@ -10,7 +10,7 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
-from .contact import run_contact_analysis, parallel_contact_analysis
+from contact import run_contact_analysis, parallel_contact_analysis
 
 def build_protein_types(proteins):
     """
