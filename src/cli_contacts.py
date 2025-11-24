@@ -100,27 +100,29 @@ def main():
     for resname in metabolites.residues.resnames:
         metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
 
-    data = {'counts': counts,
-            'metabolite_counts': metabolite_counts}
-    # # Convert to DataFrame
-    # data = {}
-    # for protein_name, protein_count in counts.items():
-    #     metabolite_dict = {}
-    #     for resname, count in protein_count.items():
-    #         # Normalize by number of protein monomers and metabolite count
-    #         # This gives: contacts per protein monomer per metabolite
-    #         normalized_count = count / (protein_types[protein_name]['n_monomers'] * metabolite_counts[resname])
-    #
-    #         metabolite_dict[resname] = {'count': count,
-    #                                     'normalized_count': normalized_count
-    #                                     }
-    #     data[protein_name] = metabolite_dict
+    protein_results = {}
+    for protein_name, protein_counts in counts.items():
+        metabolite_hits = {}
+        n_protein_monomers = protein_types[protein_name]['n_monomers']
+        for metabolite, c in protein_counts.items():
+            # Normalize by number of protein monomers and metabolite count
+            # This gives: contacts per protein monomer per metabolite
+            normalised_count = c / (n_protein_monomers * metabolite_counts[str(metabolite)])
+            metabolite_hits[str(metabolite)] = {'count': c,
+                                                'normalised_count': normalised_count}
+        protein_results[protein_name] = {'n_monomers': n_protein_monomers,
+                                         'metabolite_counts': metabolite_hits
+                                         }
+
+    # results for the system.
+    results = {'protein_results': protein_results,
+               'metabolite_counts': metabolite_counts}
 
     # Save pickle if requested
     if args.pickle_out:
         pickle_path = Path(args.pickle_out)
         with open(pickle_path, "wb") as f:
-            pickle.dump(data, f)
+            pickle.dump(results, f)
         print(f"Saved results to {pickle_path}")
 
 if __name__ == "__main__":
