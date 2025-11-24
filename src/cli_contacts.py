@@ -107,7 +107,7 @@ def main():
         for resname, count in counts.items():
             # Normalize by number of protein monomers and metabolite count
             # This gives: contacts per protein monomer per metabolite
-            normalized_count = count / (protein_types[protein_name][1] * metabolite_counts[resname])
+            normalized_count = count / (protein_types[protein_name]['n_monomers'] * metabolite_counts[resname])
 
             metabolite_dict[protein_name] = {'metabolite': resname,
                                              'count': count,
