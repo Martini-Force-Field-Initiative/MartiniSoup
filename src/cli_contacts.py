@@ -100,20 +100,21 @@ def main():
     for resname in metabolites.residues.resnames:
         metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
 
-    # Convert to DataFrame
-    data = {}
-    for protein_name, counts in counts.items():
-        metabolite_dict = {}
-        for resname, count in counts.items():
-            # Normalize by number of protein monomers and metabolite count
-            # This gives: contacts per protein monomer per metabolite
-            normalized_count = count / (protein_types[protein_name]['n_monomers'] * metabolite_counts[resname])
-
-            metabolite_dict[protein_name] = {'metabolite': resname,
-                                             'count': count,
-                                             'normalized_count': normalized_count
-                                             }
-        data[protein_name] = metabolite_dict
+    data = {'counts': counts,
+            'metabolite_counts': metabolite_counts}
+    # # Convert to DataFrame
+    # data = {}
+    # for protein_name, protein_count in counts.items():
+    #     metabolite_dict = {}
+    #     for resname, count in protein_count.items():
+    #         # Normalize by number of protein monomers and metabolite count
+    #         # This gives: contacts per protein monomer per metabolite
+    #         normalized_count = count / (protein_types[protein_name]['n_monomers'] * metabolite_counts[resname])
+    #
+    #         metabolite_dict[resname] = {'count': count,
+    #                                     'normalized_count': normalized_count
+    #                                     }
+    #     data[protein_name] = metabolite_dict
 
     # Save pickle if requested
     if args.pickle_out:
