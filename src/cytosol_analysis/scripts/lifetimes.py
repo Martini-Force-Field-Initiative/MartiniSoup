@@ -1,11 +1,9 @@
-"""
-Command-line interface for binding_analysis.
-"""
+#!/usr/bin/env python3
 
 import argparse
 import pickle
 from MDAnalysis import Universe
-from trajectory import TrajectoryAnalyzer
+from cytosol_analysis.trajectory import TrajectoryAnalyzer
 from MDAnalysis import transformations
 
 def main():

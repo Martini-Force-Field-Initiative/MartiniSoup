@@ -1,7 +1,4 @@
-"""
-Command-line interface for metabolite–protein contact analysis
-using binding_analysis.contact.
-"""
+#!/usr/bin/env python3
 
 import argparse
 import pickle
@@ -10,7 +7,7 @@ from pathlib import Path
 import MDAnalysis as mda
 import numpy as np
 
-from contact import run_contact_analysis, parallel_contact_analysis
+from cytosol_analysis.contact import run_contact_analysis, parallel_contact_analysis
 
 def build_protein_types(proteins):
     """

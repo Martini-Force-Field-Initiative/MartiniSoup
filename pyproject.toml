@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "binding_analysis"
+name = "cytosol_analysis"
 version = "0.1.0"
 description = "Tools for metabolite-protein residence time analysis"
 readme = "README.md"
@@ -18,8 +18,5 @@ dependencies = [
 ]
 
 [project.scripts]
-contact-analysis = "cli:main"
-binding-analysis = "cli_contacts:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
+contacts = "cytosol_analysis.scripts.contacts:main"
+lifetimes = "cytosol_analysis.scripts.lifetimes:main"

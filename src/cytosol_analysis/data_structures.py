@@ -7,8 +7,6 @@ This module defines:
       atom, molecule, and molecule-type levels
 """
 
-from collections import defaultdict
-
 class BoundState:
     """
     Compact tracker for one atom's binding events.

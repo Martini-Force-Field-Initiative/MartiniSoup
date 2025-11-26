@@ -1,6 +1,6 @@
 from tqdm import tqdm
 from scipy.spatial import cKDTree as KDTree
-from data_structures import BoundState, MetaboliteResidences
+from .data_structures import BoundState, MetaboliteResidences
 
 class TrajectoryAnalyzer:
     def __init__(self, u, metabolites, proteins, cutoff=4.0,
