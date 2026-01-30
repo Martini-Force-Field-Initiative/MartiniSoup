@@ -4,7 +4,7 @@ from .data_structures import BoundState, MetaboliteResidences
 
 class TrajectoryAnalyzer:
     def __init__(self, u, metabolites, proteins, cutoff=4.0,
-                 start=0, stop=None, step=1, use_time=False):
+                 start=0, stop=None, step=1, use_time=True):
         """
         use_time: if True, durations are in physical time (ts.time),
                   otherwise durations are in frame counts (ts.frame).
