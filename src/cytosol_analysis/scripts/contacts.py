@@ -127,7 +127,6 @@ def main():
 
         for metabolite, c in protein_counts.items():
             n_met = metabolite_counts.get(str(metabolite), 1)
-
             normalised_count = c / (n_protein_monomers * n_met)
 
             metabolite_hits[str(metabolite)] = {
@@ -138,7 +137,7 @@ def main():
         protein_results[protein_name] = dict(sorted(metabolite_hits.items()))
 
     # ------------------------------------------------------------
-    # Residue-level aggregation (optional)
+    # Residue-level aggregation with monomer correction
     # ------------------------------------------------------------
     residue_results = None
 
@@ -146,22 +145,68 @@ def main():
         residue_results = {}
 
         for protein_name, met_dict in residue_counts.items():
-            protein_residue_data = {}
 
-            n_protein_monomers = protein_types[protein_name]["n_monomers"]
+            pdata = protein_types[protein_name]
+            mask = pdata["mask"]
+            prot_atoms = proteins[mask]
+
+            # Build per-monomer residue ordering
+            # Use first monomer as reference
+            molnums = prot_atoms.molnums
+            resnames = prot_atoms.resnames
+            resids = prot_atoms.resids
+
+            first_mol = np.unique(molnums)[0]
+            first_mask = molnums == first_mol
+
+            # Unique residues in first monomer, in order
+            ref_res_pairs = list(
+                dict.fromkeys(
+                    zip(resnames[first_mask], resids[first_mask])
+                )
+            )
+
+            # Map global resid → local resid index (1-based)
+            resid_to_local = {}
+            for local_idx, (rname, _) in enumerate(ref_res_pairs, start=1):
+                # find all global resids with this resname at this position
+                matching = np.where(
+                    (resnames == rname) &
+                    (np.arange(len(resnames)) // len(ref_res_pairs) == local_idx - 1)
+                )[0]
+                for idx in matching:
+                    resid_to_local[resids[idx]] = (rname, local_idx)
+
+            protein_residue_data = {}
 
             for metabolite, res_dict in met_dict.items():
                 metabolite_residue_hits = {}
 
                 n_met = metabolite_counts.get(str(metabolite), 1)
+                n_protein_monomers = pdata["n_monomers"]
 
-                for (prot_resname, prot_resid), c in res_dict.items():
+                for (prot_resname, global_resid), c in res_dict.items():
+
+                    # Collapse across monomers
+                    if global_resid not in resid_to_local:
+                        continue
+
+                    _, local_resid = resid_to_local[global_resid]
+
+                    key = (prot_resname, local_resid)
+
                     normalised_count = c / (n_protein_monomers * n_met)
 
-                    metabolite_residue_hits[(prot_resname, int(prot_resid))] = {
-                        "count": int(c),
-                        "normalised_count": float(normalised_count),
-                    }
+                    if key not in metabolite_residue_hits:
+                        metabolite_residue_hits[key] = {
+                            "count": 0,
+                            "normalised_count": 0.0,
+                        }
+
+                    metabolite_residue_hits[key]["count"] += int(c)
+                    metabolite_residue_hits[key]["normalised_count"] += float(
+                        normalised_count
+                    )
 
                 protein_residue_data[str(metabolite)] = metabolite_residue_hits
 
@@ -179,7 +224,7 @@ def main():
     if residue_results is not None:
         results["residue_results"] = residue_results
 
-    results["command_used"] = str(sys.argv[1])
+    results["command_used"] = str(sys.argv[1:])
 
     # ------------------------------------------------------------
     # Save pickle if requested
