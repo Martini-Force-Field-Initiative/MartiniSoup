@@ -214,7 +214,14 @@ def main():
                         normalised_count
                     )
 
-                protein_residue_data[str(metabolite)] = metabolite_residue_hits
+                sorted_residue_hits = dict(
+                    sorted(
+                        metabolite_residue_hits.items(),
+                        key=lambda item: item[0][1]  # item[0] = (resname, local_resid)
+                    )
+                )
+
+                protein_residue_data[str(metabolite)] = sorted_residue_hits
 
             residue_results[protein_name] = protein_residue_data
 
