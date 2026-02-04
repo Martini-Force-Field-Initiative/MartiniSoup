@@ -2,6 +2,7 @@
 
 import argparse
 import pickle
+import sys
 from pathlib import Path
 
 import MDAnalysis as mda
@@ -177,6 +178,8 @@ def main():
 
     if residue_results is not None:
         results["residue_results"] = residue_results
+
+    results["command_used"] = str(sys.argv[1])
 
     # ------------------------------------------------------------
     # Save pickle if requested
