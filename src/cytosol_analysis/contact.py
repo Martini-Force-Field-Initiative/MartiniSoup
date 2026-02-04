@@ -117,7 +117,7 @@ def run_contact_analysis(
             # Residue-level protein contacts
             # ------------------------------
             if track_residues:
-                prot_atoms_frame = prot_atoms[nlist.query_indices]
+                prot_atoms_frame = prot_atoms[nlist.query_point_indices]
 
                 # Build unique contacts per frame
                 frame_contacts = set(
