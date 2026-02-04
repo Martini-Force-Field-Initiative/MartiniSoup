@@ -225,12 +225,12 @@ def main():
         "protein_results": protein_results,
         "n_metabolites": metabolite_counts,
         "n_proteins": system_protein_counts,
+        "command_used": str(sys.argv[1:])
     }
 
     if residue_results is not None:
         results["residue_results"] = residue_results
 
-    results["command_used"] = str(sys.argv[1:])
 
     # ------------------------------------------------------------
     # Save pickle if requested
