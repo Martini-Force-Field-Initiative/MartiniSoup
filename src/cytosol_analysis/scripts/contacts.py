@@ -45,6 +45,7 @@ def main():
     parser.add_argument("--protein_sel", type=str, default=None, help="MDAnalysis selection string for proteins")
     parser.add_argument("--metab_sel", type=str, default=None, help="Selection string for metabolites")
     parser.add_argument("--cutoff", type=float, default=5.0, help="Distance cutoff in Å")
+    parser.add_argument("--residues", action="store_true", help="Track metabolites at residue level")
     parser.add_argument("--parallel", action="store_true", help="Run in parallel mode")
     parser.add_argument("--n_workers", type=int, default=4, help="Number of workers for parallel mode")
     parser.add_argument("--chunk_size", type=int, default=100, help="Frames per chunk in parallel mode")
@@ -81,7 +82,8 @@ def main():
             protein_types,
             cutoff_radius=args.cutoff,
             n_workers=args.n_workers,
-            chunk_size=args.chunk_size
+            chunk_size=args.chunk_size,
+            track_residues=args.residues
         )
     else:
         counts = run_contact_analysis(
@@ -89,42 +91,102 @@ def main():
             proteins,
             metabolites,
             protein_types,
-            cutoff_radius=args.cutoff
+            cutoff_radius=args.cutoff,
+            track_residues=args.residues
         )
-
-    # Calculate metabolite concentrations
+    # ------------------------------------------------------------
+    # Calculate metabolite concentrations (number of molecules)
+    # ------------------------------------------------------------
     metabolite_counts = {}
     for resname in metabolites.residues.resnames:
         metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
 
+    # ------------------------------------------------------------
+    # Detect result structure
+    # ------------------------------------------------------------
+    if "atom_level" in counts:
+        atom_counts = counts["atom_level"]
+        residue_counts = counts.get("residue_level", None)
+    else:
+        atom_counts = counts
+        residue_counts = None
+
+    # ------------------------------------------------------------
+    # Protein-level aggregation
+    # ------------------------------------------------------------
     protein_results = {}
     system_protein_counts = {}
-    for protein_name, protein_counts in counts.items():
+
+    for protein_name, protein_counts in atom_counts.items():
+
         metabolite_hits = {}
 
-        n_protein_monomers = protein_types[protein_name]['n_monomers']
+        n_protein_monomers = protein_types[protein_name]["n_monomers"]
         system_protein_counts[protein_name] = n_protein_monomers
 
         for metabolite, c in protein_counts.items():
-            # Normalize by number of protein monomers and metabolite count
-            # This gives: contacts per protein monomer per metabolite
-            normalised_count = c / (n_protein_monomers * metabolite_counts[str(metabolite)])
-            metabolite_hits[str(metabolite)] = {'count': c,
-                                                'normalised_count': normalised_count}
-        # sorting the order of the keys may be useful if someone wants to save results as a json or whatever
+            n_met = metabolite_counts.get(str(metabolite), 1)
+
+            normalised_count = c / (n_protein_monomers * n_met)
+
+            metabolite_hits[str(metabolite)] = {
+                "count": int(c),
+                "normalised_count": float(normalised_count),
+            }
+
         protein_results[protein_name] = dict(sorted(metabolite_hits.items()))
 
-    # results for the system.
-    results = {'protein_results': protein_results,
-               'n_metabolites': metabolite_counts,
-               'n_proteins': system_protein_counts}
+    # ------------------------------------------------------------
+    # Residue-level aggregation (optional)
+    # ------------------------------------------------------------
+    residue_results = None
 
+    if residue_counts is not None:
+        residue_results = {}
+
+        for protein_name, met_dict in residue_counts.items():
+            protein_residue_data = {}
+
+            n_protein_monomers = protein_types[protein_name]["n_monomers"]
+
+            for metabolite, res_dict in met_dict.items():
+                metabolite_residue_hits = {}
+
+                n_met = metabolite_counts.get(str(metabolite), 1)
+
+                for (prot_resname, prot_resid), c in res_dict.items():
+                    normalised_count = c / (n_protein_monomers * n_met)
+
+                    metabolite_residue_hits[(prot_resname, int(prot_resid))] = {
+                        "count": int(c),
+                        "normalised_count": float(normalised_count),
+                    }
+
+                protein_residue_data[str(metabolite)] = metabolite_residue_hits
+
+            residue_results[protein_name] = protein_residue_data
+
+    # ------------------------------------------------------------
+    # Final results dictionary
+    # ------------------------------------------------------------
+    results = {
+        "protein_results": protein_results,
+        "n_metabolites": metabolite_counts,
+        "n_proteins": system_protein_counts,
+    }
+
+    if residue_results is not None:
+        results["residue_results"] = residue_results
+
+    # ------------------------------------------------------------
     # Save pickle if requested
+    # ------------------------------------------------------------
     if args.pickle_out:
         pickle_path = Path(args.pickle_out)
         with open(pickle_path, "wb") as f:
             pickle.dump(results, f)
         print(f"Saved results to {pickle_path}")
+
 
 if __name__ == "__main__":
     main()
