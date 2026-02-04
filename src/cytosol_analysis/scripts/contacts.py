@@ -95,140 +95,140 @@ def main():
             cutoff_radius=args.cutoff,
             track_residues=args.residues
         )
-        # ------------------------------------------------------------
-        # Calculate metabolite concentrations (number of molecules)
-        # ------------------------------------------------------------
-        metabolite_counts = {}
-        for resname in metabolites.residues.resnames:
-            metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
+    # ------------------------------------------------------------
+    # Calculate metabolite concentrations (number of molecules)
+    # ------------------------------------------------------------
+    metabolite_counts = {}
+    for resname in metabolites.residues.resnames:
+        metabolite_counts[resname] = metabolite_counts.get(resname, 0) + 1
 
-        # ------------------------------------------------------------
-        # Detect result structure
-        # ------------------------------------------------------------
-        if "atom_level" in counts:
-            atom_counts = counts["atom_level"]
-            residue_counts = counts.get("residue_level", None)
-        else:
-            atom_counts = counts
-            residue_counts = None
+    # ------------------------------------------------------------
+    # Detect result structure
+    # ------------------------------------------------------------
+    if "atom_level" in counts:
+        atom_counts = counts["atom_level"]
+        residue_counts = counts.get("residue_level", None)
+    else:
+        atom_counts = counts
+        residue_counts = None
 
-        # ------------------------------------------------------------
-        # Protein-level aggregation (unchanged)
-        # ------------------------------------------------------------
-        protein_results = {}
-        system_protein_counts = {}
+    # ------------------------------------------------------------
+    # Protein-level aggregation (unchanged)
+    # ------------------------------------------------------------
+    protein_results = {}
+    system_protein_counts = {}
 
-        for protein_name, protein_counts in atom_counts.items():
+    for protein_name, protein_counts in atom_counts.items():
 
-            metabolite_hits = {}
+        metabolite_hits = {}
 
-            n_protein_monomers = protein_types[protein_name]["n_monomers"]
-            system_protein_counts[protein_name] = n_protein_monomers
+        n_protein_monomers = protein_types[protein_name]["n_monomers"]
+        system_protein_counts[protein_name] = n_protein_monomers
 
-            for metabolite, c in protein_counts.items():
+        for metabolite, c in protein_counts.items():
+            n_met = metabolite_counts.get(str(metabolite), 1)
+            normalised_count = c / (n_protein_monomers * n_met)
+
+            metabolite_hits[str(metabolite)] = {
+                "count": int(c),
+                "normalised_count": float(normalised_count),
+            }
+
+        protein_results[protein_name] = dict(sorted(metabolite_hits.items()))
+
+    # ------------------------------------------------------------
+    # Residue-level aggregation with monomer correction
+    # ------------------------------------------------------------
+    residue_results = None
+
+    if residue_counts is not None:
+        residue_results = {}
+
+        for protein_name, met_dict in residue_counts.items():
+            # ------------------------------------------------------------
+            # Build mapping: global resid -> (resname, local_resid)
+            # ------------------------------------------------------------
+            pdata = protein_types[protein_name]
+            mask = pdata["mask"]
+            prot_atoms = proteins[mask]
+
+            # Work at residue level
+            prot_residues = prot_atoms.residues
+
+            # Group residues by molnum
+            molnums = prot_residues.molnums
+            unique_molnums = np.unique(molnums)
+
+            # Use first monomer as reference
+            ref_mol = unique_molnums[0]
+            ref_residues = prot_residues[molnums == ref_mol]
+
+            # Assign local residue indices (1-based, in order)
+            ref_resid_to_local = {}
+            for local_idx, res in enumerate(ref_residues, start=1):
+                ref_resid_to_local[res.resid] = (res.resname, local_idx)
+
+            # Build full mapping for all monomers
+            resid_to_local = {}
+
+            for mol in unique_molnums:
+                mol_residues = prot_residues[molnums == mol]
+
+                if len(mol_residues) != len(ref_residues):
+                    raise ValueError(
+                        f"Protein {protein_name}: monomer {mol} has "
+                        f"{len(mol_residues)} residues, expected {len(ref_residues)}"
+                    )
+
+                for ref_res, res in zip(ref_residues, mol_residues):
+                    resid_to_local[res.resid] = (ref_res.resname, ref_resid_to_local[ref_res.resid][1])
+
+            protein_residue_data = {}
+
+            for metabolite, res_dict in met_dict.items():
+                metabolite_residue_hits = {}
+
                 n_met = metabolite_counts.get(str(metabolite), 1)
-                normalised_count = c / (n_protein_monomers * n_met)
+                n_protein_monomers = pdata["n_monomers"]
 
-                metabolite_hits[str(metabolite)] = {
-                    "count": int(c),
-                    "normalised_count": float(normalised_count),
-                }
+                for (prot_resname, global_resid), c in res_dict.items():
 
-            protein_results[protein_name] = dict(sorted(metabolite_hits.items()))
+                    # Collapse across monomers
+                    if global_resid not in resid_to_local:
+                        continue
 
-        # ------------------------------------------------------------
-        # Residue-level aggregation with monomer correction
-        # ------------------------------------------------------------
-        residue_results = None
+                    _, local_resid = resid_to_local[global_resid]
 
-        if residue_counts is not None:
-            residue_results = {}
+                    key = (prot_resname, local_resid)
 
-            for protein_name, met_dict in residue_counts.items():
-                # ------------------------------------------------------------
-                # Build mapping: global resid -> (resname, local_resid)
-                # ------------------------------------------------------------
-                pdata = protein_types[protein_name]
-                mask = pdata["mask"]
-                prot_atoms = proteins[mask]
+                    normalised_count = c / (n_protein_monomers * n_met)
 
-                # Work at residue level
-                prot_residues = prot_atoms.residues
+                    if key not in metabolite_residue_hits:
+                        metabolite_residue_hits[key] = {
+                            "count": 0,
+                            "normalised_count": 0.0,
+                        }
 
-                # Group residues by molnum
-                molnums = prot_residues.molnums
-                unique_molnums = np.unique(molnums)
+                    metabolite_residue_hits[key]["count"] += int(c)
+                    metabolite_residue_hits[key]["normalised_count"] += float(
+                        normalised_count
+                    )
 
-                # Use first monomer as reference
-                ref_mol = unique_molnums[0]
-                ref_residues = prot_residues[molnums == ref_mol]
+                protein_residue_data[str(metabolite)] = metabolite_residue_hits
 
-                # Assign local residue indices (1-based, in order)
-                ref_resid_to_local = {}
-                for local_idx, res in enumerate(ref_residues, start=1):
-                    ref_resid_to_local[res.resid] = (res.resname, local_idx)
+            residue_results[protein_name] = protein_residue_data
 
-                # Build full mapping for all monomers
-                resid_to_local = {}
+    # ------------------------------------------------------------
+    # Final results dictionary
+    # ------------------------------------------------------------
+    results = {
+        "protein_results": protein_results,
+        "n_metabolites": metabolite_counts,
+        "n_proteins": system_protein_counts,
+    }
 
-                for mol in unique_molnums:
-                    mol_residues = prot_residues[molnums == mol]
-
-                    if len(mol_residues) != len(ref_residues):
-                        raise ValueError(
-                            f"Protein {protein_name}: monomer {mol} has "
-                            f"{len(mol_residues)} residues, expected {len(ref_residues)}"
-                        )
-
-                    for ref_res, res in zip(ref_residues, mol_residues):
-                        resid_to_local[res.resid] = (ref_res.resname, ref_resid_to_local[ref_res.resid][1])
-
-                protein_residue_data = {}
-
-                for metabolite, res_dict in met_dict.items():
-                    metabolite_residue_hits = {}
-
-                    n_met = metabolite_counts.get(str(metabolite), 1)
-                    n_protein_monomers = pdata["n_monomers"]
-
-                    for (prot_resname, global_resid), c in res_dict.items():
-
-                        # Collapse across monomers
-                        if global_resid not in resid_to_local:
-                            continue
-
-                        _, local_resid = resid_to_local[global_resid]
-
-                        key = (prot_resname, local_resid)
-
-                        normalised_count = c / (n_protein_monomers * n_met)
-
-                        if key not in metabolite_residue_hits:
-                            metabolite_residue_hits[key] = {
-                                "count": 0,
-                                "normalised_count": 0.0,
-                            }
-
-                        metabolite_residue_hits[key]["count"] += int(c)
-                        metabolite_residue_hits[key]["normalised_count"] += float(
-                            normalised_count
-                        )
-
-                    protein_residue_data[str(metabolite)] = metabolite_residue_hits
-
-                residue_results[protein_name] = protein_residue_data
-
-        # ------------------------------------------------------------
-        # Final results dictionary
-        # ------------------------------------------------------------
-        results = {
-            "protein_results": protein_results,
-            "n_metabolites": metabolite_counts,
-            "n_proteins": system_protein_counts,
-        }
-
-        if residue_results is not None:
-            results["residue_results"] = residue_results
+    if residue_results is not None:
+        results["residue_results"] = residue_results
 
     results["command_used"] = str(sys.argv[1:])
 
