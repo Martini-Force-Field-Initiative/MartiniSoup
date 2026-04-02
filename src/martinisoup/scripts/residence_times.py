@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from MDAnalysis import Universe
-from martinisoup.residence_tracker import BindingEventTracker
+from martinisoup.residence_tracker import BindingEventTracker, track_parallel
 from MDAnalysis import transformations
 
 def main():
@@ -34,6 +34,14 @@ def main():
     parser.add_argument("--summary", action="store_true",
                         help="Store unique residence times and their counts instead of "
                              "the full duration list, producing a smaller output file")
+    parser.add_argument("--parallel", action="store_true",
+                        help="Run contact detection in parallel (Phase 1), then run "
+                             "the state machine sequentially (Phase 2). Produces "
+                             "identical results to the serial mode.")
+    parser.add_argument("--n_workers", type=int, default=4,
+                        help="Number of worker processes for parallel mode")
+    parser.add_argument("--chunk_size", type=int, default=100,
+                        help="Frames per chunk in parallel mode")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)
@@ -47,24 +55,36 @@ def main():
     else:
         protein_selection = args.protein_selection
 
-    # Load universe
-    print("Loading universe...")
-    u = Universe(args.topology, args.trajectory)
-    # make sure all atoms are in the box
-    ag = u.atoms
-    transform = transformations.wrap(ag)
-    u.trajectory.add_transformations(transform)
-
-    metabolites = u.select_atoms(metabolite_selection)
-    proteins = u.select_atoms(protein_selection)
-
     # Run trajectory analysis
-    tracker = BindingEventTracker(u, metabolites, proteins,
-                                  cutoff=args.cutoff,
-                                  start=args.start,
-                                  stop=args.stop,
-                                  step=args.step)
-    residences = tracker.track()
+    if args.parallel:
+        residences = track_parallel(
+            args.topology,
+            args.trajectory,
+            metabolite_selection,
+            protein_selection,
+            cutoff=args.cutoff,
+            start=args.start,
+            stop=args.stop,
+            step=args.step,
+            n_workers=args.n_workers,
+            chunk_size=args.chunk_size,
+        )
+    else:
+        print("Loading universe...")
+        u = Universe(args.topology, args.trajectory)
+        ag = u.atoms
+        transform = transformations.wrap(ag)
+        u.trajectory.add_transformations(transform)
+
+        metabolites = u.select_atoms(metabolite_selection)
+        proteins = u.select_atoms(protein_selection)
+
+        tracker = BindingEventTracker(u, metabolites, proteins,
+                                      cutoff=args.cutoff,
+                                      start=args.start,
+                                      stop=args.stop,
+                                      step=args.step)
+        residences = tracker.track()
 
     # Save full results
     pickle_path = Path(args.output)
