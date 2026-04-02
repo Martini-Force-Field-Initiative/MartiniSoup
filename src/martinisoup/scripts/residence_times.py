@@ -50,6 +50,10 @@ def main():
     # Load universe
     print("Loading universe...")
     u = Universe(args.topology, args.trajectory)
+    # make sure all atoms are in the box
+    ag = u.atoms
+    transform = transformations.wrap(ag)
+    u.trajectory.add_transformations(transform)
 
     metabolites = u.select_atoms(metabolite_selection)
     proteins = u.select_atoms(protein_selection)

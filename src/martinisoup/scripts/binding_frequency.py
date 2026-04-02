@@ -56,7 +56,7 @@ def main():
     parser.add_argument("--parallel", action="store_true", help="Run in parallel mode")
     parser.add_argument("--n_workers", type=int, default=4, help="Number of workers for parallel mode")
     parser.add_argument("--chunk_size", type=int, default=100, help="Frames per chunk in parallel mode")
-    parser.add_argument("--pickle_out", type=str, default=None, help="Path to save pickle output")
+    parser.add_argument("--pickle_out", type=str, default="binding.pkl", help="Path to save pickle output")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)
