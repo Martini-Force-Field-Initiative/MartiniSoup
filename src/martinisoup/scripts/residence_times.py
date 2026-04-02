@@ -5,6 +5,8 @@ import pickle
 import sys
 from pathlib import Path
 
+import numpy as np
+
 from MDAnalysis import Universe
 from martinisoup.residence_tracker import BindingEventTracker
 from MDAnalysis import transformations
@@ -27,8 +29,11 @@ def main():
                         help="Stop frame")
     parser.add_argument("--step", type=int, default=1,
                         help="Frame step size")
-    parser.add_argument("--output", default="residues.pkl",
+    parser.add_argument("--output", default="lifetimes.pkl",
                         help="Output pickle file for molecule-level results")
+    parser.add_argument("--summary", action="store_true",
+                        help="Store unique residence times and their counts instead of "
+                             "the full duration list, producing a smaller output file")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)
@@ -56,14 +61,22 @@ def main():
                                   stop=args.stop,
                                   step=args.step)
     residences = tracker.track()
-    results = {"command": command,
-               "residences": residences}
 
-    # Save molecule-level output
+    # Save full results
     pickle_path = Path(args.output)
     with open(pickle_path, "wb") as f:
-        pickle.dump(results, f)
+        pickle.dump({"command": command, "residences": residences}, f)
     print(f"Saved results to {pickle_path}")
+
+    if args.summary:
+        summary = {
+            moltype: np.unique(durations, return_counts=True)
+            for moltype, durations in residences.items()
+        }
+        summary_path = pickle_path.with_stem(pickle_path.stem + "_summary")
+        with open(summary_path, "wb") as f:
+            pickle.dump({"command": command, "residences": summary}, f)
+        print(f"Saved summary to {summary_path}")
 
 if __name__ == "__main__":
     main()
