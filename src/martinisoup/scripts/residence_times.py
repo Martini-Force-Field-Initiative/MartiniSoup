@@ -31,9 +31,9 @@ def main():
                         help="Frame step size")
     parser.add_argument("--output", default="lifetimes.pkl",
                         help="Output pickle file for molecule-level results")
-    parser.add_argument("--summary", action="store_true",
-                        help="Store unique residence times and their counts instead of "
-                             "the full duration list, producing a smaller output file")
+    parser.add_argument("--summary", default=None, metavar="FILE",
+                        help="Write a summary pickle (unique residence times and their "
+                             "counts) to FILE")
     parser.add_argument("--parallel", action="store_true",
                         help="Run contact detection in parallel (Phase 1), then run "
                              "the state machine sequentially (Phase 2). Produces "
@@ -97,7 +97,7 @@ def main():
             moltype: np.unique(durations, return_counts=True)
             for moltype, durations in residences.items()
         }
-        summary_path = pickle_path.with_stem(pickle_path.stem + "_summary")
+        summary_path = Path(args.summary)
         with open(summary_path, "wb") as f:
             pickle.dump({"command": command, "residences": summary}, f)
         print(f"Saved summary to {summary_path}")
