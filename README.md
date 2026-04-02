@@ -6,6 +6,7 @@ Package for analysing metabolite interactions in heterogeneous cytosolic MD simu
 
 - **Binding frequency analysis** — counts metabolite–protein contacts across a trajectory, normalised by protein monomer count and metabolite copy number
 - **Residence time analysis** — tracks per-molecule binding events and extracts duration distributions for each metabolite type
+- **Mean squared displacement** — computes MSD per metabolite type using the Einstein relation, averaged across all molecules of each type
 - **Survival curve fitting** — empirical survival functions with bootstrap confidence intervals and single-exponential kinetic model fitting
 - **Parallel trajectory processing** — optional multiprocessing support for large trajectories
 
@@ -30,6 +31,16 @@ martinisoup <command> [options]
 Commands:
   binding-frequency    Metabolite–protein contact frequency analysis
   residence-times      Binding event residence time analysis
+  msd                  Mean squared displacement per metabolite type
+```
+
+By default, the MDAnalysis selection strings for metabolites and proteins are:
+
+```
+        metabolite_selection = 'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
+
+        protein_selection = 'resname GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
+
 ```
 
 ### `binding-frequency`
@@ -84,6 +95,36 @@ options:
 ```
 
 The output pickle contains a `{molecule_type: [durations]}` dictionary.
+
+### `msd`
+
+Computes the mean squared displacement per metabolite type using the MDAnalysis Einstein MSD implementation. A NoJump transformation is applied automatically to unwrap periodic boundary conditions. Results are averaged across all copies of each molecule type.
+
+```bash
+martinisoup msd topology.tpr trajectory.xtc --output msd.pkl
+```
+
+```
+positional arguments:
+  topology              Topology file (e.g. .tpr, .gro)
+  trajectory            Trajectory file (e.g. .xtc, .trr)
+
+options:
+  --metab_sel STR       MDAnalysis selection string for metabolites
+  --start INT           Start frame (default: first frame of second half of trajectory)
+  --stop INT            Stop frame (default: start + 100)
+  --fft                 Use FFT algorithm for MSD calculation (default: True)
+  --output PATH         Output pickle file (default: msd.pkl)
+```
+
+The output pickle contains a dictionary with keys:
+- `resnames` — list of unique metabolite type names
+- `residue_timeseries` — mean MSD per type, shape `(n_types, n_lagtimes)`
+- `residue_std` — standard deviation across molecules, shape `(n_types, n_lagtimes)`
+- `time` — absolute times corresponding to each lagtime
+- `lagtimes` — MSD values averaged across all molecules
+- `dimensions` — dimensionality factor used in the MSD calculation
+- `dt` — trajectory timestep in ps
 
 ## Python API
 
