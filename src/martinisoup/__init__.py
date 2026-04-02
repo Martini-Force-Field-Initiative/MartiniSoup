@@ -1,6 +1,6 @@
 
-from .trajectory import TrajectoryAnalyzer
-from .data_structures import BoundState, MetaboliteResidences
+from .residence_tracker import BindingEventTracker
+from .data_structures import BindingState, ResidenceRegistry
 
 # Submodule re-exports
 from .analysis import (
@@ -11,9 +11,9 @@ from .analysis import (
 )
 
 __all__ = [
-    "TrajectoryAnalyzer",
-    "BoundState",
-    "MetaboliteResidences",
+    "BindingEventTracker",
+    "BindingState",
+    "ResidenceRegistry",
     "ResidenceAnalysis",
     "SurvivalAnalysis",
     "HistogramAnalysis",

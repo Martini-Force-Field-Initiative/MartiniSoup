@@ -30,11 +30,11 @@ class ResidenceAnalysis:
 
     # --------------- Survival Curves ----------------
 
-    def survival(self, typename):
+    def compute_survival(self, typename):
         sa = SurvivalAnalysis(self.durations(typename))
         return sa.compute_survival()
 
-    def survival_CI(self, typename, n_boot=200):
+    def compute_survival_ci(self, typename, n_boot=200):
         sa = SurvivalAnalysis(self.durations(typename))
         sa.compute_survival()
         return sa.bootstrap_CI(n_boot=n_boot)

@@ -42,7 +42,7 @@ def _merge_counts(dict_list: List[Dict[str, Dict[str, int]]]) -> Dict[str, Dict[
 # Core analysis (single process)
 # --------------------------------------------------------------------------- #
 
-def run_contact_analysis(
+def count_contacts(
     u,
     proteins,
     metabolites,
@@ -147,7 +147,7 @@ def _worker_contact_chunk(args):
     proteins = u.select_atoms(prot_sel)
     metabolites = u.select_atoms(metab_sel)
 
-    return run_contact_analysis(
+    return count_contacts(
         u,
         proteins,
         metabolites,
@@ -159,7 +159,7 @@ def _worker_contact_chunk(args):
     )
 
 
-def parallel_contact_analysis(
+def count_contacts_parallel(
     topology: str,
     trajectory: str,
     prot_sel: str,

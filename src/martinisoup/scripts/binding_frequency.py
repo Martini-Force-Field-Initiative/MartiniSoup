@@ -2,19 +2,27 @@
 
 import argparse
 import pickle
+import sys
 from pathlib import Path
 
 import MDAnalysis as mda
 import numpy as np
 
-from cytosol_analysis.contact import run_contact_analysis, parallel_contact_analysis
+from martinisoup.contact import count_contacts, count_contacts_parallel
 
-def build_protein_types(proteins):
+def index_protein_segments(proteins):
     """
-    Build protein_types dictionary with:
-        - segid
-        - n_monomers
-        - boolean mask for fast lookup
+    Build a segment index dictionary with segid, monomer count,
+    and a boolean mask for fast per-type lookup.
+
+    Parameters
+    ----------
+    proteins : MDAnalysis.AtomGroup
+
+    Returns
+    -------
+    dict
+        {protein_name: {"segid": str, "n_monomers": int, "mask": np.ndarray}}
     """
     protein_types = {}
     for seg in proteins.segments:
@@ -38,7 +46,7 @@ def build_protein_types(proteins):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Metabolite–protein contact analysis"
+        description="Metabolite–protein binding frequency analysis"
     )
     parser.add_argument("topology", type=str, help="Topology file (e.g., .pdb, .tpr)")
     parser.add_argument("trajectory", type=str, help="Trajectory file (e.g., .xtc)")
@@ -48,9 +56,10 @@ def main():
     parser.add_argument("--parallel", action="store_true", help="Run in parallel mode")
     parser.add_argument("--n_workers", type=int, default=4, help="Number of workers for parallel mode")
     parser.add_argument("--chunk_size", type=int, default=100, help="Frames per chunk in parallel mode")
-    parser.add_argument("--pickle_out", type=str, default=None, help="Path to save pickle output")
+    parser.add_argument("--pickle_out", type=str, default="binding.pkl", help="Path to save pickle output")
 
     args = parser.parse_args()
+    command = ' '.join(sys.argv)
 
     # Load universe
     u = mda.Universe(args.topology, args.trajectory)
@@ -59,21 +68,21 @@ def main():
     if not args.metab_sel:
         metabolite_selection = 'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
     else:
-        metabolite_selection = 'resname ATP'
+        metabolite_selection = args.metab_sel
     if not args.protein_sel:
         protein_selection = 'resname GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
     else:
-        protein_selection = 'protein'
+        protein_selection = args.protein_sel
 
     proteins = u.select_atoms(protein_selection)
     metabolites = u.select_atoms(metabolite_selection)
 
-    # Build protein_types dict with masks
-    protein_types = build_protein_types(proteins)
+    # Build protein segment index with masks
+    protein_types = index_protein_segments(proteins)
 
     # Run analysis
     if args.parallel:
-        counts = parallel_contact_analysis(
+        counts = count_contacts_parallel(
             args.topology,
             args.trajectory,
             protein_selection,
@@ -84,7 +93,7 @@ def main():
             chunk_size=args.chunk_size
         )
     else:
-        counts = run_contact_analysis(
+        counts = count_contacts(
             u,
             proteins,
             metabolites,
@@ -115,16 +124,15 @@ def main():
         protein_results[protein_name] = dict(sorted(metabolite_hits.items()))
 
     # results for the system.
-    results = {'protein_results': protein_results,
+    results = {'command': command,
+               'protein_results': protein_results,
                'n_metabolites': metabolite_counts,
                'n_proteins': system_protein_counts}
 
-    # Save pickle if requested
-    if args.pickle_out:
-        pickle_path = Path(args.pickle_out)
-        with open(pickle_path, "wb") as f:
-            pickle.dump(results, f)
-        print(f"Saved results to {pickle_path}")
+    pickle_path = Path(args.pickle_out)
+    with open(pickle_path, "wb") as f:
+        pickle.dump(results, f)
+    print(f"Saved results to {pickle_path}")
 
 if __name__ == "__main__":
     main()
