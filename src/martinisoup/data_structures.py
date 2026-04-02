@@ -2,12 +2,12 @@
 Data structures for storing and organizing residence time information.
 
 This module defines:
-    • BoundState – compact storage for atom-level binding events
-    • MetaboliteResidences – aggregation of residence durations at
+    • BindingState - compact storage for atom-level binding events
+    • ResidenceRegistry - aggregation of residence durations at
       atom, molecule, and molecule-type levels
 """
 
-class BoundState:
+class BindingState:
     """
     Compact tracker for one atom's binding events.
 
@@ -68,13 +68,13 @@ class BoundState:
             self.start = None
 
 
-class MetaboliteResidences:
+class ResidenceRegistry:
     """
     Store residence-time data aggregated by atom, molecule, and molecule type.
 
     Parameters
     ----------
-    tracker : dict[int, BoundState]
+    tracker : dict[int, BindingState]
         Atom-level bound state tracking information.
     molnums : list[int]
         Molecule index for each atom (atom->molecule mapping).
@@ -114,7 +114,7 @@ class MetaboliteResidences:
             type_dict[mt].extend(state.durations)
         return type_dict
 
-    def make_type_agg_named(self):
+    def get_durations_by_type(self):
         """
         Create a dictionary mapping molecule-type names to aggregated durations.
         Requires `moltype_table` to be provided.

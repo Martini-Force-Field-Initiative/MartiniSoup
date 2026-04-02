@@ -1,8 +1,8 @@
 from tqdm import tqdm
 from scipy.spatial import cKDTree as KDTree
-from .data_structures import BoundState, MetaboliteResidences
+from .data_structures import BindingState, ResidenceRegistry
 
-class TrajectoryAnalyzer:
+class BindingEventTracker:
     def __init__(self, u, metabolites, proteins, cutoff=4.0,
                  start=0, stop=None, step=1, use_time=True):
         """
@@ -31,10 +31,10 @@ class TrajectoryAnalyzer:
         self.moltype_ids = moltype_ids     # list, len = n_metabolite_atoms
         self.moltype_table = moltype_table # list: id -> name
 
-    def run(self):
+    def track(self):
         n_atoms = len(self.metabolites)
         # initialize tracker with moltype ids
-        tracker = {i: BoundState(moltype_id=self.moltype_ids[i]) for i in range(n_atoms)}
+        tracker = {i: BindingState(moltype_id=self.moltype_ids[i]) for i in range(n_atoms)}
 
         # iterate trajectory
         last_stamp = None
@@ -71,11 +71,11 @@ class TrajectoryAnalyzer:
             state.finalize(final_stamp)
 
         # Build MetaboliteResidences, including moltype_table and moltype_ids
-        residues = MetaboliteResidences(
+        residues = ResidenceRegistry(
             tracker=tracker,
             molnums=list(self.metabolites.molnums),   # ensure serializable list-like
             moltype_table={i: name for i, name in enumerate(self.moltype_table)},
             moltype_ids=list(self.moltype_ids),
-        ).make_type_agg_named()
+        ).get_durations_by_type()
 
         return residues

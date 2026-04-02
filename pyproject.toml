@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cytosol_analysis"
 version = "0.1.0"
-description = "Tools for metabolite-protein residence time analysis"
+description = "Tools for cytosolic simulation analysis"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -18,5 +18,4 @@ dependencies = [
 ]
 
 [project.scripts]
-contacts = "cytosol_analysis.scripts.contacts:main"
-lifetimes = "cytosol_analysis.scripts.lifetimes:main"
+martinisoup = "martinisoup.cli:main"
