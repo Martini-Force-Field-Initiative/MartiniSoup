@@ -7,7 +7,6 @@ Package for analysing metabolite interactions in heterogeneous cytosolic MD simu
 - **Binding frequency analysis** — counts metabolite–protein contacts across a trajectory, normalised by protein monomer count and metabolite copy number
 - **Residence time analysis** — tracks per-molecule binding events and extracts duration distributions for each metabolite type
 - **Mean squared displacement** — computes MSD per metabolite type using the Einstein relation, averaged across all molecules of each type
-- **Survival curve fitting** — empirical survival functions with bootstrap confidence intervals and single-exponential kinetic model fitting
 - **Parallel trajectory processing** — optional multiprocessing support for large trajectories
 
 ## Installation
@@ -37,10 +36,9 @@ Commands:
 By default, the MDAnalysis selection strings for metabolites and proteins are:
 
 ```
-        metabolite_selection = 'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
+metabolite_selection = 'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
 
-        protein_selection = 'resname GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
-
+protein_selection = 'resname GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
 ```
 
 ### `binding-frequency`
@@ -48,7 +46,7 @@ By default, the MDAnalysis selection strings for metabolites and proteins are:
 Counts how often each metabolite type contacts each protein type over a trajectory. Results are normalised per protein monomer per metabolite copy.
 
 ```bash
-martinisoup binding-frequency topology.tpr trajectory.xtc --pickle_out results.pkl
+martinisoup binding-frequency topology.tpr trajectory.xtc --output results.pkl
 ```
 
 ```
@@ -63,20 +61,21 @@ options:
   --parallel            Run in parallel mode
   --n_workers INT       Number of parallel workers (default: 4)
   --chunk_size INT      Frames per parallel chunk (default: 100)
-  --pickle_out PATH     Path to save results as a pickle file
+  --output PATH         Path to save results as a pickle file (default: binding.pkl)
 ```
 
 The output pickle contains a dictionary with keys:
+- `command` — the full command used to produce the results
 - `protein_results` — per-protein, per-metabolite raw and normalised contact counts
 - `n_metabolites` — metabolite copy numbers in the system
 - `n_proteins` — protein monomer counts in the system
 
 ### `residence-times`
 
-Tracks binding and unbinding events for each metabolite molecule across the trajectory and records event durations.
+Tracks binding and unbinding events for each metabolite molecule across the trajectory and records event durations. The use of the `--summary` flag is strongly recommended, the raw data output may be quite large for data analysis purposes.
 
 ```bash
-martinisoup residence-times topology.tpr trajectory.xtc --output residences.pkl
+martinisoup residence-times topology.tpr trajectory.xtc --output lifetimes.pkl --summary summary.pkl
 ```
 
 ```
@@ -91,10 +90,19 @@ options:
   --start INT                  Start frame (default: 0)
   --stop INT                   Stop frame (default: end of trajectory)
   --step INT                   Frame step size (default: 1)
-  --output PATH                Output pickle file (default: residues.pkl)
+  --output PATH                Output pickle file (default: lifetimes.pkl)
+  --summary FILE               Write a summary pickle (unique residence times and
+                               their counts) to FILE
+  --parallel                   Run contact detection in parallel (Phase 1), then
+                               run the state machine sequentially (Phase 2).
+                               Produces identical results to serial mode.
+  --n_workers INT              Number of worker processes for parallel mode (default: 4)
+  --chunk_size INT             Frames per chunk in parallel mode (default: 100)
 ```
 
-The output pickle contains a `{molecule_type: [durations]}` dictionary.
+The output pickle contains a dictionary with keys:
+- `command` — the full command used to produce the results
+- `residences` — `{molecule_type: [durations]}` dictionary
 
 ### `msd`
 
@@ -118,6 +126,7 @@ options:
 ```
 
 The output pickle contains a dictionary with keys:
+- `command` — the full command used to produce the results
 - `resnames` — list of unique metabolite type names
 - `residue_timeseries` — mean MSD per type, shape `(n_types, n_lagtimes)`
 - `residue_std` — standard deviation across molecules, shape `(n_types, n_lagtimes)`
@@ -129,18 +138,21 @@ The output pickle contains a dictionary with keys:
 ## Python API
 
 ```python
-from martinisoup import BindingEventTracker, ResidenceAnalysis
+from martinisoup import track_serial, track_parallel
 
-# --- Residence time analysis ---
-tracker = BindingEventTracker(u, metabolites, proteins, cutoff=5.0)
-durations = tracker.track()  # {moltype_name: [durations]}
+# --- Serial residence time tracking ---
+residences = track_serial(
+    topology, trajectory,
+    metabolite_selection, protein_selection,
+    cutoff=5.0, start=0, stop=None, step=1
+)
+# residences: {moltype_name: [durations]}
 
-# --- Survival curve and fitting ---
-ra = ResidenceAnalysis(durations)
-t, S = ra.compute_survival("ATP")
-lower, upper = ra.compute_survival_ci("ATP", n_boot=500)
-result = ra.fit_exponential("ATP")
-
-# --- Histogram ---
-edges, centers, counts, pdf = ra.histogram("ATP", nbins=30, log_bins=True)
+# --- Parallel residence time tracking ---
+residences = track_parallel(
+    topology, trajectory,
+    metabolite_selection, protein_selection,
+    cutoff=5.0, start=0, stop=None, step=1,
+    n_workers=4, chunk_size=100
+)
 ```
