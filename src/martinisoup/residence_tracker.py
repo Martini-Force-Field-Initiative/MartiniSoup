@@ -2,6 +2,23 @@ from tqdm import tqdm
 from scipy.spatial import cKDTree as KDTree
 from .data_structures import BindingState, ResidenceRegistry
 from MDAnalysis import Universe, transformations
+from MDAnalysis.exceptions import NoDataError
+
+
+def _moltypes(ag):
+    """Return per-atom moltype labels, falling back to resnames if unavailable."""
+    try:
+        return ag.moltypes
+    except NoDataError:
+        return ag.resnames
+
+
+def _molnums(ag):
+    """Return per-atom molecule indices, falling back to resindices if unavailable."""
+    try:
+        return ag.molnums
+    except NoDataError:
+        return ag.resindices
 
 
 def track_serial(
@@ -36,7 +53,7 @@ def track_serial(
     unique = {}
     moltype_table = []
     moltype_ids = []
-    for mt in metabolites.moltypes:
+    for mt in _moltypes(metabolites):
         if mt not in unique:
             unique[mt] = len(moltype_table)
             moltype_table.append(mt)
@@ -64,7 +81,7 @@ def track_serial(
 
     return ResidenceRegistry(
         tracker=tracker,
-        molnums=list(metabolites.molnums),
+        molnums=list(_molnums(metabolites)),
         moltype_table={i: name for i, name in enumerate(moltype_table)},
         moltype_ids=list(moltype_ids),
     ).get_durations_by_type()
@@ -155,13 +172,13 @@ def track_parallel(
     unique = {}
     moltype_table = []
     moltype_ids = []
-    for mt in metabolites.moltypes:
+    for mt in _moltypes(metabolites):
         if mt not in unique:
             unique[mt] = len(moltype_table)
             moltype_table.append(mt)
         moltype_ids.append(unique[mt])
 
-    molnums  = list(metabolites.molnums)
+    molnums  = list(_molnums(metabolites))
     n_atoms  = len(metabolites)
 
     # ------------------------------------------------------------------ #

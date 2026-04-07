@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import MDAnalysis as mda
 from MDAnalysis.coordinates.memory import MemoryReader
-from martinisoup.residence_tracker import track_serial
+from martinisoup.residence_tracker import track_serial, _moltypes, _molnums
 
 # Protein sits at (5, 5, 5) throughout.  With cutoff=5 Å:
 _BOUND_POS = (7.0, 5.0, 5.0)    # 2 Å from protein → bound
@@ -56,6 +56,41 @@ def _write_temp_files(u, tmp_path):
         for ts in u.trajectory:
             w.write(u.atoms)
     return gro, xtc
+
+
+def _make_universe_without_mol_attrs():
+    """Minimal 2-residue universe with no moltypes or molnums (GRO-like)."""
+    u = mda.Universe.empty(2, n_residues=2, n_segments=2,
+                           atom_resindex=[0, 1], residue_segindex=[0, 1],
+                           trajectory=True)
+    u.add_TopologyAttr('name', ['CA', 'C1'])
+    u.add_TopologyAttr('resname', ['ALA', 'ATP'])
+    u.add_TopologyAttr('resid', [1, 2])
+    return u
+
+
+class TestMoltypeHelpers:
+
+    def test_moltypes_returns_moltypes_when_present(self):
+        u = _make_universe([_BOUND_POS])
+        ag = u.select_atoms('resname ATP')
+        assert list(_moltypes(ag)) == ['ATP']
+
+    def test_moltypes_falls_back_to_resnames(self):
+        u = _make_universe_without_mol_attrs()
+        ag = u.select_atoms('resname ATP')
+        assert list(_moltypes(ag)) == ['ATP']
+
+    def test_molnums_returns_molnums_when_present(self):
+        u = _make_universe([_BOUND_POS])
+        ag = u.select_atoms('resname ATP')
+        assert list(_molnums(ag)) == [1]
+
+    def test_molnums_falls_back_to_resindices(self):
+        u = _make_universe_without_mol_attrs()
+        ag = u.select_atoms('resname ATP')
+        # resindex of the ATP atom is 1 (second residue)
+        assert list(_molnums(ag)) == list(ag.resindices)
 
 
 class TestTrackSerial:
