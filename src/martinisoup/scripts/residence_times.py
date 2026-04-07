@@ -7,9 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from MDAnalysis import Universe
-from martinisoup.residence_tracker import BindingEventTracker, track_parallel
-from MDAnalysis import transformations
+from martinisoup.residence_tracker import track_serial, track_parallel
 
 def main():
     parser = argparse.ArgumentParser(
@@ -70,21 +68,16 @@ def main():
             chunk_size=args.chunk_size,
         )
     else:
-        print("Loading universe...")
-        u = Universe(args.topology, args.trajectory)
-        ag = u.atoms
-        transform = transformations.wrap(ag)
-        u.trajectory.add_transformations(transform)
-
-        metabolites = u.select_atoms(metabolite_selection)
-        proteins = u.select_atoms(protein_selection)
-
-        tracker = BindingEventTracker(u, metabolites, proteins,
-                                      cutoff=args.cutoff,
-                                      start=args.start,
-                                      stop=args.stop,
-                                      step=args.step)
-        residences = tracker.track()
+        residences = track_serial(
+            args.topology,
+            args.trajectory,
+            metabolite_selection,
+            protein_selection,
+            cutoff=args.cutoff,
+            start=args.start,
+            stop=args.stop,
+            step=args.step,
+        )
 
     # Save full results
     pickle_path = Path(args.output)
