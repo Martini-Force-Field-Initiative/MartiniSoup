@@ -141,6 +141,9 @@ martinisoup msd-fitter replica_1/msd.pkl replica_2/msd.pkl replica_3/msd.pkl --o
 
 # custom fitting window and matplotlib style
 martinisoup msd-fitter msd.pkl --cut-start 10 --cut-end 50 --style mystyle.mplstyle --output-dir results/
+
+# local database file for class assignments
+martinisoup msd-fitter msd.pkl --database database.csv --output-dir results/
 ```
 
 ```
@@ -150,11 +153,13 @@ positional arguments:
 options:
   --cut-start INT       Start index of the fitting window (default: 10)
   --cut-end INT         End index of the fitting window (default: 50)
+  --database-url URL    URL to metabolite class database CSV (default: M3-Metabolome repository)
+  --database PATH       Path to a local metabolite class database CSV (takes priority over --database-url)
   --output-dir PATH     Directory for output plots and results CSV (default: current directory)
   --style PATH          Path to a matplotlib style file
 ```
 
-Outputs per-residue MSD plots and a `diffusion_coefficients.csv` with columns `resname`, `D`, `D_err`.
+Outputs per-residue MSD plots and a `diffusion_coefficients.csv` with columns `resname`, `class`, `D`, `D_err`. Metabolite class assignments are fetched from the M3-Metabolome database.
 
 When multiple replica files are provided, the mean MSD across replicas is computed and the uncertainty is propagated as `sqrt(sum(σ_i²)) / n_replicas` before fitting.
 
