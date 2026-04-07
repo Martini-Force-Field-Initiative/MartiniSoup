@@ -22,13 +22,20 @@ def index_protein_segments(proteins):
     Returns
     -------
     dict
-        {protein_name: {"segid": str, "n_monomers": int, "mask": np.ndarray}}
+        {protein_name: 
+            {"segid": str, 
+             "n_monomers": int, 
+             "mask": np.ndarray}
+             }
     """
     protein_types = {}
     for seg in proteins.segments:
         # Protein name from segid
         parts = seg.segid.split('_')
-        protein_name = '_'.join(parts[2:])
+        if len(parts) > 2:
+            protein_name = '_'.join(parts[2:])
+        else:
+            protein_name = parts
 
         # Count monomers
         n_monomers = len(np.unique(seg.atoms.molnums))
