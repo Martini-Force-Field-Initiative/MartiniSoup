@@ -32,6 +32,7 @@ Commands:
   binding-frequency    Metabolite–protein contact frequency analysis
   residence-times      Binding event residence time analysis
   msd                  Mean squared displacement per metabolite type
+  msd-fitter           Fit MSD data to extract diffusion coefficients
 ```
 
 By default, the MDAnalysis selection strings for metabolites and proteins are:
@@ -125,6 +126,36 @@ The output pickle contains a dictionary with keys:
 - `lagtimes` — MSD values averaged across all molecules
 - `dimensions` — dimensionality factor used in the MSD calculation
 - `dt` — trajectory timestep in ps
+
+### `msd-fitter`
+
+Fits MSD output from `martinisoup msd` to a linear model and extracts diffusion coefficients via the Einstein relation (D = slope / 6). Multiple input files are treated as replicas and averaged before fitting.
+
+```bash
+# single replica
+martinisoup msd-fitter msd.pkl --output-dir results/
+
+# average over replicas before fitting
+martinisoup msd-fitter replica_1/msd.pkl replica_2/msd.pkl replica_3/msd.pkl --output-dir results/
+
+# custom fitting window and matplotlib style
+martinisoup msd-fitter msd.pkl --cut-start 10 --cut-end 50 --style mystyle.mplstyle --output-dir results/
+```
+
+```
+positional arguments:
+  files                 Pickle file(s) from `martinisoup msd`. Multiple files are averaged as replicas.
+
+options:
+  --cut-start INT       Start index of the fitting window (default: 10)
+  --cut-end INT         End index of the fitting window (default: 50)
+  --output-dir PATH     Directory for output plots and results CSV (default: current directory)
+  --style PATH          Path to a matplotlib style file
+```
+
+Outputs per-residue MSD plots and a `diffusion_coefficients.csv` with columns `resname`, `D`, `D_err`.
+
+When multiple replica files are provided, the mean MSD across replicas is computed and the uncertainty is propagated as `sqrt(sum(σ_i²)) / n_replicas` before fitting.
 
 ## Python API
 

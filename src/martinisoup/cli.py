@@ -6,6 +6,7 @@ COMMANDS = {
     "binding-frequency": "martinisoup.scripts.binding_frequency",
     "residence-times": "martinisoup.scripts.residence_times",
     "msd": "martinisoup.scripts.msd",
+    "msd-fitter": "martinisoup.scripts.msd_fitter",
 }
 
 def main():
