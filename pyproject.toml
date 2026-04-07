@@ -15,6 +15,7 @@ dependencies = [
     "tqdm",
     "scipy",
     "freud-analysis"
+    "tidynamics"
 ]
 
 [project.scripts]
