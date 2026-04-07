@@ -7,6 +7,7 @@ COMMANDS = {
     "residence-times": "martinisoup.scripts.residence_times",
     "msd": "martinisoup.scripts.msd",
     "msd-fitter": "martinisoup.scripts.msd_fitter",
+    "residence-fitter": "martinisoup.scripts.residence_fitter",
 }
 
 def main():

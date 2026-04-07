@@ -14,7 +14,9 @@ dependencies = [
     "MDAnalysis",
     "tqdm",
     "scipy",
-    "freud-analysis"
+    "freud-analysis",
+    "pandas",
+    "requests"
 ]
 
 [project.scripts]
