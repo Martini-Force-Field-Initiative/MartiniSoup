@@ -37,12 +37,18 @@ DEFAULT_WEIGHTS_END = {
 }
 
 
-def load_datasets(files: list[str]) -> list[dict]:
+def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
     datasets = []
     for f in files:
         with open(f, 'rb') as fh:
             data = pickle.load(fh)
-            datasets.append(data['residences'])
+        residences = data['residences']
+        if not summarised:
+            residences = {
+                resname: np.unique(durations, return_counts=True)
+                for resname, durations in residences.items()
+            }
+        datasets.append(residences)
     return datasets
 
 
@@ -224,6 +230,11 @@ def parse_args():
         "--style", default=None,
         help="Path to a matplotlib style file."
     )
+    parser.add_argument(
+        "--unsummarised", action="store_true",
+        help="Input files are the raw (unsummarised) output of `martinisoup residence-times`. "
+             "By default, summarised output (produced with --summary) is expected."
+    )
     return parser.parse_args()
 
 
@@ -243,7 +254,7 @@ def main():
 
     bins = np.logspace(args.bins_start, args.bins_stop, args.bins_n)
 
-    datasets = load_datasets(args.files)
+    datasets = load_datasets(args.files, summarised=not args.unsummarised)
     metabolite_classes = load_metabolite_classes(args.database_url, args.database)
     hists = build_class_histograms(datasets, metabolite_classes, bins)
     results = fit_and_plot(hists, weights_end, output_dir)

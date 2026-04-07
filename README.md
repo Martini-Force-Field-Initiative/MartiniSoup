@@ -163,14 +163,17 @@ When multiple replica files are provided, the mean MSD across replicas is comput
 Fits residence-time data from `martinisoup residence-times` to a power law model, grouped by metabolite class. Metabolite–class assignments are fetched from the M3-Metabolome database. Multiple input files are treated as replicas and averaged before fitting.
 
 ```bash
-# single replica
-martinisoup residence-fitter lifetimes.pkl --output-dir results/
+# summarised output (default — produced with `martinisoup residence-times --summary`)
+martinisoup residence-fitter lifetimes_summary.pkl --output-dir results/
+
+# raw (unsummarised) output
+martinisoup residence-fitter lifetimes.pkl --unsummarised --output-dir results/
 
 # average over replicas before fitting
-martinisoup residence-fitter replica_1/lifetimes.pkl replica_2/lifetimes.pkl replica_3/lifetimes.pkl --output-dir results/
+martinisoup residence-fitter replica_1/lifetimes_summary.pkl replica_2/lifetimes_summary.pkl replica_3/lifetimes_summary.pkl --output-dir results/
 
 # local database file and custom fit weights
-martinisoup residence-fitter lifetimes.pkl --database database.csv --weights weights.json --output-dir results/
+martinisoup residence-fitter lifetimes_summary.pkl --database database.csv --weights weights.json --output-dir results/
 ```
 
 ```
@@ -178,17 +181,19 @@ positional arguments:
   files                 Pickle file(s) from `martinisoup residence-times`. Multiple files are averaged as replicas.
 
 options:
+  --unsummarised        Input files are raw (unsummarised) residence-times output. By default,
+                        summarised output (produced with --summary) is expected.
   --database-url URL    URL to metabolite class database CSV (default: M3-Metabolome repository)
   --database PATH       Path to a local metabolite class database CSV (takes priority over --database-url)
   --bins-start FLOAT    Start of log-spaced bin range as log10 value in ns (default: 0)
   --bins-stop FLOAT     End of log-spaced bin range as log10 value in ns (default: log10(500))
   --bins-n INT          Number of bins (default: 25)
   --weights PATH        JSON file mapping class names to fit weight upper bounds
-  --output-dir PATH     Directory for output plot and results CSV (default: current directory)
+  --output-dir PATH     Directory for output plots and results CSV (default: current directory)
   --style PATH          Path to a matplotlib style file
 ```
 
-Outputs a two-panel figure (`residence_fit.png`) showing the power law fits and a bar chart of exponents by class, plus a `residence_exponents.csv` with columns `class`, `exponent`, `exponent_err`.
+Outputs a grid figure (`residence_fits.png`) with one subplot per metabolite class showing the power law fit, a bar chart (`residence_exponents.png`) of fitted exponents, and a `residence_exponents.csv` with columns `class`, `exponent`, `exponent_err`.
 
 The `--weights` JSON should map class names to the upper bound of the log-spaced fit weights, e.g.:
 
