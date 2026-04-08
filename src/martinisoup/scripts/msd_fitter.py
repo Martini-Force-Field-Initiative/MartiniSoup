@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 from uncertainties.unumpy import uarray, nominal_values, std_devs
 
-from martinisoup.database import load_metabolite_classes
+from martinisoup.database import load_metabolite_classes, DATABASE_URL
 
 
 def load_datasets(files: list[str]) -> list[dict]:
@@ -70,6 +70,13 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
                  cut_start: int, cut_end: int,
                  output_dir: Path,
                  metabolite_classes: dict | None = None) -> dict:
+    """Fit MSD curves and return results.
+
+    If metabolite_classes is provided, results are grouped:
+        {class: {resname: array([D, D_err])}}
+    Otherwise, results are flat:
+        {resname: array([D, D_err])}
+    """
     results = {}
 
     for timeseries, std, resname in zip(data['residue_timeseries'],
@@ -87,8 +94,11 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         D = result.params['slope'].value / 6
         D_err = result.params['slope'].stderr / 6
 
-        cl = metabolite_classes.get(resname, 'Unknown') if metabolite_classes else 'Unknown'
-        results.setdefault(cl, {})[resname] = np.array([D, D_err])
+        if metabolite_classes is not None:
+            cl = metabolite_classes.get(resname, 'Unknown')
+            results.setdefault(cl, {})[resname] = np.array([D, D_err])
+        else:
+            results[resname] = np.array([D, D_err])
 
         fig, ax = plt.subplots()
         ax.errorbar(lagtimes, timeseries, yerr=std,
@@ -102,19 +112,26 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         ax.set_ylabel("MSD")
         ax.legend(loc='upper left',
                   title=f"D = {D:.2f} ± {D_err:.2f}")
-        fig.savefig(output_dir / f"{cl}_{resname}.png", bbox_inches='tight')
+        fig.savefig(output_dir / f"{resname}.png", bbox_inches='tight')
         plt.close(fig)
 
     return results
 
 
 def save_results(results: dict, output_dir: Path) -> None:
+    grouped = isinstance(next(iter(results.values())), dict)
+
     csv_file = output_dir / "diffusion_coefficients.csv"
     with open(csv_file, 'w') as fh:
-        fh.write("class,resname,D,D_err\n")
-        for cl, metabolites in results.items():
-            for resname, (D, D_err) in metabolites.items():
-                fh.write(f"{cl},{resname},{D},{D_err}\n")
+        if grouped:
+            fh.write("class,resname,D,D_err\n")
+            for cl, metabolites in results.items():
+                for resname, (D, D_err) in metabolites.items():
+                    fh.write(f"{cl},{resname},{D},{D_err}\n")
+        else:
+            fh.write("resname,D,D_err\n")
+            for resname, (D, D_err) in results.items():
+                fh.write(f"{resname},{D},{D_err}\n")
     print(f"Results written to {csv_file}")
 
     pkl_file = output_dir / "diffusion_coefficients.pkl"
@@ -149,12 +166,9 @@ def parse_args():
         help="Path to a matplotlib style file."
     )
     parser.add_argument(
-        "--database-url", default=None,
-        help="URL to metabolite class database CSV (default: M3-Metabolome repository)."
-    )
-    parser.add_argument(
-        "--database", default=None,
-        help="Path to a local metabolite class database CSV."
+        "--database", nargs='?', const=DATABASE_URL, default=None,
+        help="Group results by metabolite class using the M3-Metabolome database. "
+             "Use --database alone to fetch the remote default, or supply a local CSV path."
     )
     return parser.parse_args()
 
@@ -168,7 +182,9 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    metabolite_classes = load_metabolite_classes(args.database_url, args.database)
+    metabolite_classes = None
+    if args.database is not None:
+        metabolite_classes = load_metabolite_classes(args.database)
 
     datasets = load_datasets(args.files)
     data = average_replicas(datasets)

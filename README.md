@@ -133,17 +133,17 @@ The output pickle contains a dictionary with keys:
 Fits MSD output from `martinisoup msd` to a linear model and extracts diffusion coefficients via the Einstein relation (D = slope / 6). Multiple input files are treated as replicas and averaged before fitting.
 
 ```bash
-# single replica
+# per-molecule results (no database)
 martinisoup msd-fitter msd.pkl --output-dir results/
 
-# average over replicas before fitting
-martinisoup msd-fitter replica_1/msd.pkl replica_2/msd.pkl replica_3/msd.pkl --output-dir results/
+# group by class using the remote M3-Metabolome database
+martinisoup msd-fitter msd.pkl --database --output-dir results/
 
-# custom fitting window and matplotlib style
-martinisoup msd-fitter msd.pkl --cut-start 10 --cut-end 50 --style mystyle.mplstyle --output-dir results/
-
-# local database file for class assignments
+# group by class using a local database file
 martinisoup msd-fitter msd.pkl --database database.csv --output-dir results/
+
+# average over replicas before fitting
+martinisoup msd-fitter replica_1/msd.pkl replica_2/msd.pkl replica_3/msd.pkl --database --output-dir results/
 ```
 
 ```
@@ -153,32 +153,33 @@ positional arguments:
 options:
   --cut-start INT       Start index of the fitting window (default: 10)
   --cut-end INT         End index of the fitting window (default: 50)
-  --database-url URL    URL to metabolite class database CSV (default: M3-Metabolome repository)
-  --database PATH       Path to a local metabolite class database CSV (takes priority over --database-url)
+  --database [PATH]     Group results by metabolite class. Use --database alone to fetch the
+                        remote M3-Metabolome default, or supply a local CSV path.
+                        Omit entirely for per-molecule results.
   --output-dir PATH     Directory for output plots and results CSV (default: current directory)
   --style PATH          Path to a matplotlib style file
 ```
 
-Outputs per-residue MSD plots and a `diffusion_coefficients.csv` with columns `resname`, `class`, `D`, `D_err`. Metabolite class assignments are fetched from the M3-Metabolome database.
+Without `--database`, outputs `diffusion_coefficients.csv` with columns `resname`, `D`, `D_err`. With `--database`, results are grouped by class and the CSV has columns `class`, `resname`, `D`, `D_err`.
 
 When multiple replica files are provided, the mean MSD across replicas is computed and the uncertainty is propagated as `sqrt(sum(σ_i²)) / n_replicas` before fitting.
 
 ### `residence-fitter`
 
-Fits residence-time data from `martinisoup residence-times` to a power law model, grouped by metabolite class. Metabolite–class assignments are fetched from the M3-Metabolome database. Multiple input files are treated as replicas and averaged before fitting.
+Fits residence-time data from `martinisoup residence-times` to a power law model. Multiple input files are treated as replicas and averaged before fitting. With `--database`, results are grouped by metabolite class; without it, each molecule type is fitted independently.
 
 ```bash
-# summarised output (default — produced with `martinisoup residence-times --summary`)
+# per-molecule results (no database)
 martinisoup residence-fitter lifetimes_summary.pkl --output-dir results/
 
-# raw (unsummarised) output
-martinisoup residence-fitter lifetimes.pkl --unsummarised --output-dir results/
+# group by class using the remote M3-Metabolome database
+martinisoup residence-fitter lifetimes_summary.pkl --database --output-dir results/
 
-# average over replicas before fitting
-martinisoup residence-fitter replica_1/lifetimes_summary.pkl replica_2/lifetimes_summary.pkl replica_3/lifetimes_summary.pkl --output-dir results/
-
-# local database file and custom fit weights
+# group by class using a local database file and custom fit weights
 martinisoup residence-fitter lifetimes_summary.pkl --database database.csv --weights weights.json --output-dir results/
+
+# raw (unsummarised) output, averaged over replicas
+martinisoup residence-fitter replica_1/lifetimes.pkl replica_2/lifetimes.pkl --unsummarised --database --output-dir results/
 ```
 
 ```
@@ -186,10 +187,11 @@ positional arguments:
   files                 Pickle file(s) from `martinisoup residence-times`. Multiple files are averaged as replicas.
 
 options:
+  --database [PATH]     Group results by metabolite class. Use --database alone to fetch the
+                        remote M3-Metabolome default, or supply a local CSV path.
+                        Omit entirely for per-molecule results.
   --unsummarised        Input files are raw (unsummarised) residence-times output. By default,
                         summarised output (produced with --summary) is expected.
-  --database-url URL    URL to metabolite class database CSV (default: M3-Metabolome repository)
-  --database PATH       Path to a local metabolite class database CSV (takes priority over --database-url)
   --bins-start FLOAT    Start of log-spaced bin range as log10 value in ns (default: 0)
   --bins-stop FLOAT     End of log-spaced bin range as log10 value in ns (default: log10(500))
   --bins-n INT          Number of bins (default: 25)

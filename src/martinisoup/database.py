@@ -9,20 +9,19 @@ DATABASE_URL = (
 )
 
 
-def load_metabolite_classes(url: str | None = None, local: str | None = None) -> dict:
-    """Return a {resname: class} mapping from either a local CSV or a URL.
+def load_metabolite_classes(source: str = DATABASE_URL) -> dict:
+    """Return a {resname: class} mapping from a URL or a local CSV path.
 
-    If neither is provided, the M3-Metabolome database is fetched from GitHub.
+    Defaults to fetching the M3-Metabolome database from GitHub.
     """
-    if local:
-        df = pd.read_csv(local,
-                         usecols=['Metabolite name', 'resname', 'class'],
-                         index_col='resname')
-    else:
-        source = url or DATABASE_URL
+    if source.startswith("http"):
         response = requests.get(source)
         response.raise_for_status()
         df = pd.read_csv(io.StringIO(response.content.decode('utf-8')),
+                         usecols=['Metabolite name', 'resname', 'class'],
+                         index_col='resname')
+    else:
+        df = pd.read_csv(source,
                          usecols=['Metabolite name', 'resname', 'class'],
                          index_col='resname')
     return df.to_dict()['class']

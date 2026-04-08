@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from lmfit.models import PowerLawModel
 
-from martinisoup.database import load_metabolite_classes
+from martinisoup.database import load_metabolite_classes, DATABASE_URL
 
 COLORS = {
     'Ions':              '#337AEA',
@@ -30,6 +30,8 @@ DEFAULT_WEIGHTS_END = {
     'Other_Metabolites': 1e4,
 }
 
+DEFAULT_COLOR = '#888888'
+
 
 def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
     datasets = []
@@ -46,28 +48,36 @@ def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
     return datasets
 
 
-def build_class_histograms(datasets: list[dict],
-                           metabolite_classes: dict,
-                           bins: np.ndarray) -> dict:
-    """Aggregate per-replica residence histograms by metabolite class.
+def build_histograms(datasets: list[dict],
+                     bins: np.ndarray,
+                     metabolite_classes: dict | None = None) -> dict:
+    """Aggregate per-replica residence histograms.
 
-    Returns a nested dict: {class_name: {replica_idx: {'counts': ..., 'edges': ...}}}
+    If metabolite_classes is provided, histograms are grouped and averaged by
+    metabolite class: {class_name: {replica_idx: {'counts': ..., 'edges': ...}}}
+
+    Otherwise, each resname gets its own histogram:
+    {resname: {replica_idx: {'counts': ..., 'edges': ...}}}
     """
     hists = defaultdict(dict)
 
     for idx, replica in enumerate(datasets):
-        survivals = defaultdict(list)
+        groups = defaultdict(list)
 
         for resname, unique_lifetimes in replica.items():
-            if resname not in metabolite_classes:
-                continue
-            metabolite_class = metabolite_classes[resname]
+            if metabolite_classes is not None:
+                if resname not in metabolite_classes:
+                    continue
+                key = metabolite_classes[resname]
+            else:
+                key = resname
+
             values, counts = unique_lifetimes
             hist = np.histogram(values / 1000, bins=bins, weights=counts)
-            survivals[metabolite_class].append(hist)
+            groups[key].append(hist)
 
-        for cl, vals in survivals.items():
-            hists[cl][idx] = {
+        for key, vals in groups.items():
+            hists[key][idx] = {
                 'counts': np.stack([v[0] for v in vals]),
                 'edges':  np.stack([v[1] for v in vals]),
             }
@@ -75,16 +85,21 @@ def build_class_histograms(datasets: list[dict],
     return dict(hists)
 
 
-def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path) -> dict:
-    """Fit a power law to each class's averaged histogram and produce plots."""
-    classes = [cl for cl in COLORS if cl in hists]
+def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path,
+                 grouped: bool = True) -> dict:
+    """Fit a power law to each histogram group and produce plots.
+
+    When grouped=True, keys are metabolite class names and COLORS are applied.
+    When grouped=False, keys are resnames and a default colour is used.
+    """
+    keys = [k for k in COLORS if k in hists] if grouped else list(hists.keys())
     results = {}
-    fit_data = {}  # store (x, counts, counts_std, best_fit) per class for plotting
+    fit_data = {}  # store (x, counts, counts_std, best_fit) per key for plotting
 
-    for cl in classes:
-        data = hists[cl]
+    for key in keys:
+        data = hists[key]
 
-        # shape: (n_replicas, n_metabolites_in_class, n_bins)
+        # shape: (n_replicas, n_members_in_group, n_bins)
         all_counts = np.stack([r['counts'] for r in data.values()])
         edges = np.stack([r['edges'] for r in data.values()]).mean(axis=0).mean(axis=0)
 
@@ -94,44 +109,44 @@ def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path) -> dict:
         x = (edges[1:] + edges[:-1]) / 2
         x0 = x / 1000
 
-        w_end = weights_end.get(cl, 1e3)  # necessary because of log binning
+        w_end = weights_end.get(key, 1e3)  # necessary because of log binning
         fit_weights = np.logspace(np.log10(1e0), np.log10(w_end), num=counts.shape[0])
 
         mod = PowerLawModel()
         params = mod.guess(counts, x=x0)
         result = mod.fit(counts, params=params, x=x0, weights=fit_weights)
 
-        results[cl] = [result.params['exponent'].value,
-                       result.params['exponent'].stderr]
-        fit_data[cl] = (x, counts, counts_std, result.best_fit)
+        results[key] = [result.params['exponent'].value,
+                        result.params['exponent'].stderr]
+        fit_data[key] = (x, counts, counts_std, result.best_fit)
 
-    # --- grid of per-class fit plots ---
+    # --- grid of per-group fit plots ---
     ncols = 3
-    nrows = int(np.ceil(len(classes) / ncols))
+    nrows = int(np.ceil(len(keys) / ncols))
     fig_fits, axes = plt.subplots(nrows=nrows, ncols=ncols,
                                   figsize=(5 * ncols, 4 * nrows),
                                   sharey=True)
     axes_flat = np.array(axes).flatten()
 
-    for ax, cl in zip(axes_flat, classes):
-        x, counts, counts_std, best_fit = fit_data[cl]
-        exp, err = results[cl]
-        ax.errorbar(x, counts, 
+    for ax, key in zip(axes_flat, keys):
+        x, counts, counts_std, best_fit = fit_data[key]
+        exp, err = results[key]
+        color = COLORS.get(key, DEFAULT_COLOR)
+        ax.errorbar(x, counts,
                     yerr=counts_std, ls='',
                     marker='o', markersize=10,
                     markeredgewidth=1, markeredgecolor='#262626',
-                    c=COLORS[cl], label='data'
-                    )
-        ax.plot(x, best_fit, c='#262626', #c=COLORS[cl], 
+                    c=color, label='data')
+        ax.plot(x, best_fit, c='#262626',
                 lw=3, ls='--', label='fit', zorder=10)
         ax.set_xscale('log')
         ax.set_yscale('log')
-        ax.set_title(cl.replace('_', ' '))
+        ax.set_title(key.replace('_', ' '))
         ax.set_xlabel("Lifetime (ns)")
         ax.set_ylabel("Count")
         ax.legend(title=f"exp = {exp:.2f} ± {err:.2f}")
 
-    for ax in axes_flat[len(classes):]:
+    for ax in axes_flat[len(keys):]:
         ax.set_visible(False)
 
     fig_fits.tight_layout()
@@ -145,9 +160,9 @@ def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path) -> dict:
 
     fig_bar, ax_bar = plt.subplots()
     ax_bar.bar(
-        ['\n'.join(cl.split('_')) for cl in sorted_results],
+        ['\n'.join(k.split('_')) for k in sorted_results],
         [v[0] for v in sorted_results.values()],
-        color=[COLORS[cl] for cl in sorted_results],
+        color=[COLORS.get(k, DEFAULT_COLOR) for k in sorted_results],
         yerr=[v[1] for v in sorted_results.values()],
     )
     ax_bar.set_ylabel("Power law exponent")
@@ -157,31 +172,31 @@ def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path) -> dict:
     return results
 
 
-def save_results(results: dict, output_dir: Path) -> None:
+def save_results(results: dict, output_dir: Path, grouped: bool = True) -> None:
     out_file = output_dir / "residence_exponents.csv"
+    key_label = "class" if grouped else "resname"
     with open(out_file, 'w') as fh:
-        fh.write("class,exponent,exponent_err\n")
-        for cl, (exp, err) in results.items():
-            fh.write(f"{cl},{exp},{err}\n")
+        fh.write(f"{key_label},exponent,exponent_err\n")
+        for key, (exp, err) in results.items():
+            fh.write(f"{key},{exp},{err}\n")
     print(f"Results written to {out_file}")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Fit residence-time data by metabolite class using a power law model. "
-                    "Multiple input files are treated as replicas and averaged."
+        description="Fit residence-time data using a power law model. "
+                    "Multiple input files are treated as replicas and averaged. "
+                    "If a database is provided, results are grouped by metabolite class; "
+                    "otherwise each molecule type is fitted independently."
     )
     parser.add_argument(
         "files", nargs='+',
         help="Pickle file(s) from `martinisoup residence-times`. Multiple files are averaged as replicas."
     )
     parser.add_argument(
-        "--database-url", default=None,
-        help="URL to metabolite class database CSV (default: M3-Metabolome repository)."
-    )
-    parser.add_argument(
-        "--database", default=None,
-        help="Path to a local metabolite class database CSV."
+        "--database", nargs='?', const=DATABASE_URL, default=None,
+        help="Group results by metabolite class using the M3-Metabolome database. "
+             "Use --database alone to fetch the remote default, or supply a local CSV path."
     )
     parser.add_argument(
         "--bins-start", type=float, default=0.0,
@@ -232,11 +247,16 @@ def main():
 
     bins = np.logspace(args.bins_start, args.bins_stop, args.bins_n)
 
+    metabolite_classes = None
+    if args.database is not None:
+        metabolite_classes = load_metabolite_classes(args.database)
+
+    grouped = metabolite_classes is not None
+
     datasets = load_datasets(args.files, summarised=not args.unsummarised)
-    metabolite_classes = load_metabolite_classes(args.database_url, args.database)
-    hists = build_class_histograms(datasets, metabolite_classes, bins)
-    results = fit_and_plot(hists, weights_end, output_dir)
-    save_results(results, output_dir)
+    hists = build_histograms(datasets, bins, metabolite_classes)
+    results = fit_and_plot(hists, weights_end, output_dir, grouped)
+    save_results(results, output_dir, grouped)
 
 
 if __name__ == "__main__":
