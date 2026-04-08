@@ -1,6 +1,7 @@
 import argparse
 import json
 import pickle
+import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -172,14 +173,20 @@ def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path,
     return results
 
 
-def save_results(results: dict, output_dir: Path, grouped: bool = True) -> None:
-    out_file = output_dir / "residence_exponents.csv"
+def save_results(results: dict, output_dir: Path,
+                 grouped: bool = True, command: str = '') -> None:
+    csv_file = output_dir / "residence_exponents.csv"
     key_label = "class" if grouped else "resname"
-    with open(out_file, 'w') as fh:
+    with open(csv_file, 'w') as fh:
         fh.write(f"{key_label},exponent,exponent_err\n")
         for key, (exp, err) in results.items():
             fh.write(f"{key},{exp},{err}\n")
-    print(f"Results written to {out_file}")
+    print(f"Results written to {csv_file}")
+
+    pkl_file = output_dir / "residence_exponents.pkl"
+    with open(pkl_file, 'wb') as fh:
+        pickle.dump({"command": command, "results": results}, fh)
+    print(f"Results written to {pkl_file}")
 
 
 def parse_args():
@@ -233,6 +240,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    command = ' '.join(sys.argv)
 
     if args.style:
         plt.style.use(args.style)
@@ -256,7 +264,7 @@ def main():
     datasets = load_datasets(args.files, summarised=not args.unsummarised)
     hists = build_histograms(datasets, bins, metabolite_classes)
     results = fit_and_plot(hists, weights_end, output_dir, grouped)
-    save_results(results, output_dir, grouped)
+    save_results(results, output_dir, grouped, command)
 
 
 if __name__ == "__main__":

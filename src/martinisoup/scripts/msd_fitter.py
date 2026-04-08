@@ -1,5 +1,6 @@
 import argparse
 import pickle
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -118,7 +119,7 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
     return results
 
 
-def save_results(results: dict, output_dir: Path) -> None:
+def save_results(results: dict, output_dir: Path, command: str = '') -> None:
     grouped = isinstance(next(iter(results.values())), dict)
 
     csv_file = output_dir / "diffusion_coefficients.csv"
@@ -136,7 +137,7 @@ def save_results(results: dict, output_dir: Path) -> None:
 
     pkl_file = output_dir / "diffusion_coefficients.pkl"
     with open(pkl_file, 'wb') as fh:
-        pickle.dump(results, fh)
+        pickle.dump({"command": command, "results": results}, fh)
     print(f"Results written to {pkl_file}")
 
 
@@ -175,6 +176,7 @@ def parse_args():
 
 def main():
     args = parse_args()
+    command = ' '.join(sys.argv)
 
     if args.style:
         plt.style.use(args.style)
@@ -192,7 +194,7 @@ def main():
 
     results = fit_and_plot(data, lagtimes, args.cut_start, args.cut_end, output_dir,
                            metabolite_classes)
-    save_results(results, output_dir)
+    save_results(results, output_dir, command)
 
 
 if __name__ == "__main__":
