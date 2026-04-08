@@ -113,7 +113,10 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         ax.set_ylabel("MSD")
         ax.legend(loc='upper left',
                   title=f"D = {D:.2f} ± {D_err:.2f}")
-        fig.savefig(output_dir / f"{resname}.png", bbox_inches='tight')
+        if metabolite_classes is not None:
+            fig.savefig(output_dir / f"{cl}_{resname}.png", bbox_inches='tight')
+        else:
+            fig.savefig(output_dir / f"{resname}.png", bbox_inches='tight')
         plt.close(fig)
 
     return results
