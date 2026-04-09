@@ -15,6 +15,8 @@ dependencies = [
     "tqdm",
     "scipy",
     "freud-analysis",
+    "pandas",
+    "requests"
     "tidynamics", 
 ]
 

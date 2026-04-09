@@ -31,6 +31,8 @@ Commands:
   binding-frequency    Metabolite–protein contact frequency analysis
   residence-times      Binding event residence time analysis
   msd                  Mean squared displacement per metabolite type
+  msd-fitter           Fit MSD data to extract diffusion coefficients
+  residence-fitter     Fit residence-time histograms by metabolite class
 ```
 
 By default, the MDAnalysis selection strings for metabolites and proteins are:
@@ -134,6 +136,89 @@ The output pickle contains a dictionary with keys:
 - `lagtimes` — MSD values averaged across all molecules
 - `dimensions` — dimensionality factor used in the MSD calculation
 - `dt` — trajectory timestep in ps
+
+### `msd-fitter`
+
+Fits MSD output from `martinisoup msd` to a linear model and extracts diffusion coefficients via the Einstein relation (D = slope / 6). Multiple input files are treated as replicas and averaged before fitting.
+
+```bash
+# per-molecule results (no database)
+martinisoup msd-fitter msd.pkl --output-dir results/
+
+# group by class using the remote M3-Metabolome database
+martinisoup msd-fitter msd.pkl --database --output-dir results/
+
+# group by class using a local database file
+martinisoup msd-fitter msd.pkl --database database.csv --output-dir results/
+
+# average over replicas before fitting
+martinisoup msd-fitter replica_1/msd.pkl replica_2/msd.pkl replica_3/msd.pkl --database --output-dir results/
+```
+
+```
+positional arguments:
+  files                 Pickle file(s) from `martinisoup msd`. Multiple files are averaged as replicas.
+
+options:
+  --cut-start INT       Start index of the fitting window (default: 10)
+  --cut-end INT         End index of the fitting window (default: 50)
+  --database [PATH]     Group results by metabolite class. Use --database alone to fetch the
+                        remote M3-Metabolome default, or supply a local CSV path.
+                        Omit entirely for per-molecule results.
+  --output-dir PATH     Directory for output plots and results CSV (default: current directory)
+  --style PATH          Path to a matplotlib style file
+```
+
+Without `--database`, outputs `diffusion_coefficients.csv` with columns `resname`, `D`, `D_err`. With `--database`, results are grouped by class and the CSV has columns `class`, `resname`, `D`, `D_err`.
+
+When multiple replica files are provided, the mean MSD across replicas is computed and the uncertainty is propagated as `sqrt(sum(σ_i²)) / n_replicas` before fitting.
+
+### `residence-fitter`
+
+Fits residence-time data from `martinisoup residence-times` to a power law model. Multiple input files are treated as replicas and averaged before fitting. With `--database`, results are grouped by metabolite class; without it, each molecule type is fitted independently.
+
+```bash
+# per-molecule results (no database)
+martinisoup residence-fitter lifetimes_summary.pkl --output-dir results/
+
+# group by class using the remote M3-Metabolome database
+martinisoup residence-fitter lifetimes_summary.pkl --database --output-dir results/
+
+# group by class using a local database file and custom fit weights
+martinisoup residence-fitter lifetimes_summary.pkl --database database.csv --weights weights.json --output-dir results/
+
+# raw (unsummarised) output, averaged over replicas
+martinisoup residence-fitter replica_1/lifetimes.pkl replica_2/lifetimes.pkl --unsummarised --database --output-dir results/
+```
+
+```
+positional arguments:
+  files                 Pickle file(s) from `martinisoup residence-times`. Multiple files are averaged as replicas.
+
+options:
+  --database [PATH]     Group results by metabolite class. Use --database alone to fetch the
+                        remote M3-Metabolome default, or supply a local CSV path.
+                        Omit entirely for per-molecule results.
+  --unsummarised        Input files are raw (unsummarised) residence-times output. By default,
+                        summarised output (produced with --summary) is expected.
+  --bins-start FLOAT    Start of log-spaced bin range as log10 value in ns (default: 0)
+  --bins-stop FLOAT     End of log-spaced bin range as log10 value in ns (default: log10(500))
+  --bins-n INT          Number of bins (default: 25)
+  --weights PATH        JSON file mapping class names to fit weight upper bounds
+  --output-dir PATH     Directory for output plots and results CSV (default: current directory)
+  --style PATH          Path to a matplotlib style file
+```
+
+Outputs a grid figure (`residence_fits.png`) with one subplot per metabolite class showing the power law fit, a bar chart (`residence_exponents.png`) of fitted exponents, and a `residence_exponents.csv` with columns `class`, `exponent`, `exponent_err`.
+
+The `--weights` JSON should map class names to the upper bound of the log-spaced fit weights, e.g.:
+
+```json
+{
+  "Ions": 500,
+  "Nucleotides": 10000
+}
+```
 
 ## Python API
 
