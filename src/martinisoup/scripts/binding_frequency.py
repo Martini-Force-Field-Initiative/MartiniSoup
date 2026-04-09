@@ -22,13 +22,20 @@ def index_protein_segments(proteins):
     Returns
     -------
     dict
-        {protein_name: {"segid": str, "n_monomers": int, "mask": np.ndarray}}
+        {protein_name: 
+            {"segid": str, 
+             "n_monomers": int, 
+             "mask": np.ndarray}
+             }
     """
     protein_types = {}
     for seg in proteins.segments:
         # Protein name from segid
         parts = seg.segid.split('_')
-        protein_name = '_'.join(parts[2:])
+        if len(parts) > 2:
+            protein_name = '_'.join(parts[2:])
+        else:
+            protein_name = parts
 
         # Count monomers
         n_monomers = len(np.unique(seg.atoms.molnums))
@@ -56,7 +63,7 @@ def main():
     parser.add_argument("--parallel", action="store_true", help="Run in parallel mode")
     parser.add_argument("--n_workers", type=int, default=4, help="Number of workers for parallel mode")
     parser.add_argument("--chunk_size", type=int, default=100, help="Frames per chunk in parallel mode")
-    parser.add_argument("--pickle_out", type=str, default="binding.pkl", help="Path to save pickle output")
+    parser.add_argument("--output", type=str, default="binding.pkl", help="Path to save pickle output")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)
