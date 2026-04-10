@@ -7,7 +7,7 @@ from pathlib import Path
 
 import MDAnalysis as mda
 
-from martinisoup.clustering import analyse_trajectory
+from martinisoup.clustering import analyse_trajectory, analyse_trajectory_parallel
 
 
 def main():
@@ -32,6 +32,12 @@ def main():
                         help="Frame stride (default: 1)")
     parser.add_argument("--output", type=str, default="cluster_states.pkl",
                         help="Output pickle file (default: cluster_states.pkl)")
+    parser.add_argument("--parallel", action="store_true",
+                        help="Run analysis in parallel")
+    parser.add_argument("--n_workers", type=int, default=4,
+                        help="Number of worker processes for parallel mode (default: 4)")
+    parser.add_argument("--chunk_size", type=int, default=100,
+                        help="Frames per chunk in parallel mode (default: 100)")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)
@@ -46,20 +52,35 @@ def main():
     else:
         protein_selection = args.protein_selection
 
-    u = mda.Universe(args.topology, args.trajectory)
-    metabolites = u.select_atoms(metabolite_selection)
-    proteins = u.select_atoms(protein_selection)
+    if args.parallel:
+        results = analyse_trajectory_parallel(
+            args.topology,
+            args.trajectory,
+            metabolite_selection,
+            protein_selection,
+            r_max=args.r_max,
+            contact_cutoff=args.contact_cutoff,
+            start=args.start,
+            stop=args.stop,
+            step=args.step,
+            n_workers=args.n_workers,
+            chunk_size=args.chunk_size,
+        )
+    else:
+        u = mda.Universe(args.topology, args.trajectory)
+        metabolites = u.select_atoms(metabolite_selection)
+        proteins = u.select_atoms(protein_selection)
 
-    results = analyse_trajectory(
-        u,
-        metabolites,
-        proteins,
-        r_max=args.r_max,
-        contact_cutoff=args.contact_cutoff,
-        start=args.start,
-        stop=args.stop,
-        step=args.step,
-    )
+        results = analyse_trajectory(
+            u,
+            metabolites,
+            proteins,
+            r_max=args.r_max,
+            contact_cutoff=args.contact_cutoff,
+            start=args.start,
+            stop=args.stop,
+            step=args.step,
+        )
 
     output_path = Path(args.output)
     with open(output_path, "wb") as f:
