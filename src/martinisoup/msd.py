@@ -90,4 +90,5 @@ def compute_msd(
         'lagtimes': msd_data['timeseries'],
         'dimensions': MSD.dim_fac,
         'dt': u.trajectory.dt,
+        'trajectory_units': dict(u.trajectory.units),
     }

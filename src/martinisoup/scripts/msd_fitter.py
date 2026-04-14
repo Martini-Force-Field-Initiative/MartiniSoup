@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 from uncertainties.unumpy import uarray, nominal_values, std_devs
+from MDAnalysis.units import convert as mda_convert
 
 from martinisoup.database import load_metabolite_classes, DATABASE_URL
 
@@ -23,7 +24,7 @@ def load_datasets(files: list[str]) -> list[dict]:
 
 def build_lagtimes(data: dict) -> np.ndarray:
     nframes = len(data['lagtimes'])
-    timestep = data['dt'] / 1000  # ns
+    timestep = data['dt'] 
     return np.arange(nframes) * timestep
 
 
@@ -73,6 +74,7 @@ def average_replicas(datasets: list[dict]) -> dict:
 def fit_and_plot(data: dict, lagtimes: np.ndarray,
                  cut_start: int, cut_end: int,
                  output_dir: Path,
+                 time_unit: str, length_unit: str,
                  metabolite_classes: dict | None = None) -> dict:
     """Fit MSD curves and return results.
 
@@ -82,6 +84,9 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         {resname: array([D, D_err])}
     """
     results = {}
+
+    # slope is in length_unit²/time_unit; convert to cm²/s using stored trajectory units
+    unit_factor = mda_convert(1.0, length_unit, 'cm') ** 2 / mda_convert(1.0, time_unit, 's')
 
     for timeseries, std, resname in zip(data['residue_timeseries'],
                                         data['residue_std'],
@@ -95,8 +100,8 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         pars = mod.guess(y_fit, x=x_fit)
         result = mod.fit(y_fit, params=pars, x=x_fit, weights=1 / y_err ** 2)
 
-        D = result.params['slope'].value / 6
-        D_err = result.params['slope'].stderr / 6
+        D = result.params['slope'].value / 6 * unit_factor
+        D_err = result.params['slope'].stderr / 6 * unit_factor
 
         if metabolite_classes is not None:
             cl = metabolite_classes.get(resname, 'Unknown')
@@ -112,10 +117,10 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         ax.plot(x_fit, result.best_fit,
                 c='#3F615A', label='fit', lw=3, zorder=10)
         ax.set_title(resname, fontsize=20)
-        ax.set_xlabel("Time (ns)")
-        ax.set_ylabel("MSD")
+        ax.set_xlabel(f"Time ({time_unit})")
+        ax.set_ylabel(f"MSD ({length_unit}²)")
         ax.legend(loc='upper left',
-                  title=f"D = {D:.2f} ± {D_err:.2f}")
+                  title=f"D = {D:.2e} ± {D_err:.2e} cm²/s")
         if metabolite_classes is not None:
             fig.savefig(output_dir / f"{cl}_{resname}.png", bbox_inches='tight')
         else:
@@ -131,7 +136,7 @@ def save_results(results: dict, output_dir: Path, command: str = '') -> None:
     csv_file = output_dir / "diffusion_coefficients.csv"
     with open(csv_file, 'w') as fh:
         if grouped:
-            fh.write("class,resname,D,D_err\n")
+            fh.write("class,resname,D (cm²/s),D_err (cm²/s)\n")
             for cl, metabolites in results.items():
                 for resname, (D, D_err) in metabolites.items():
                     fh.write(f"{cl},{resname},{D},{D_err}\n")
@@ -143,7 +148,9 @@ def save_results(results: dict, output_dir: Path, command: str = '') -> None:
 
     pkl_file = output_dir / "diffusion_coefficients.pkl"
     with open(pkl_file, 'wb') as fh:
-        pickle.dump({"command": command, "results": results}, fh)
+        pickle.dump({"command": command, 
+                     "results": results,
+                     "units": "cm²/s"}, fh)
     print(f"Results written to {pkl_file}")
 
 
@@ -195,11 +202,15 @@ def main():
         metabolite_classes = load_metabolite_classes(args.database)
 
     datasets = load_datasets(args.files)
+    traj_units = datasets[0]['trajectory_units']
+    time_unit = traj_units['time']
+    length_unit = traj_units['length']
+
     data = average_replicas(datasets)
     lagtimes = build_lagtimes(datasets[0])
 
     results = fit_and_plot(data, lagtimes, args.cut_start, args.cut_end, output_dir,
-                           metabolite_classes)
+                           time_unit, length_unit, metabolite_classes)
     save_results(results, output_dir, command)
 
 
