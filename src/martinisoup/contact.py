@@ -61,7 +61,8 @@ def count_contacts(
     proteins : AtomGroup
     metabolites : AtomGroup
     protein_types : dict
-        Dictionary of:
+        Dictionary structured as::
+
             {
                 protein_name: {
                     "segid": str,
