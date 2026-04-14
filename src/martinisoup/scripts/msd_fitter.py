@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import pickle
 import sys
@@ -29,7 +31,8 @@ def average_replicas(datasets: list[dict]) -> dict:
     """Return a single dataset whose timeseries and std are averaged across replicas.
 
     For each residue the mean MSD is the arithmetic mean over replicas.
-    The combined uncertainty is the propagated error of that mean:
+    The combined uncertainty is the propagated error of that mean::
+
         combined_std = sqrt(sum(std_i ** 2)) / n_replicas
     """
     if len(datasets) == 1:

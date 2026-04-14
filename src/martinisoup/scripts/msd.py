@@ -5,11 +5,7 @@ import pickle
 import sys
 from pathlib import Path
 
-import MDAnalysis as mda
-import MDAnalysis.analysis.msd as msd_analysis
-import numpy as np
-from MDAnalysis.transformations import NoJump
-from tqdm import tqdm
+from martinisoup.msd import compute_msd
 
 
 def main():
@@ -32,47 +28,21 @@ def main():
     args = parser.parse_args()
     command = ' '.join(sys.argv)
 
-    if not args.metab_sel:
-        metabolite_selection = 'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
-    else:
-        metabolite_selection = args.metab_sel
+    metab_sel = args.metab_sel or (
+        'not resname NA CL ION GLU ASN VAL ALA GLY ARG SER PRO THR PHE '
+        'GLN LYS LEU ASP ILE MET HIS CYS TRP TYR'
+    )
 
     print("Loading universe...")
-    u = mda.Universe(args.topology, args.trajectory)
-    u.trajectory.add_transformations(NoJump())
-
-    # Default frame range: second half of trajectory, up to 100 frames
-    start = args.start if args.start is not None else int(len(u.trajectory) / 2)
-    stop = args.stop if args.stop is not None else start + 100
-
-    print(f"Running MSD on frames {start}–{stop}...")
-    MSD = msd_analysis.EinsteinMSD(u, select=metabolite_selection, fft=args.fft)
-    MSD.run(start=start, stop=stop, verbose=True)
-
-    msd_data = {key: value for key, value in MSD.results.items()}
-    msd_array = msd_data['msds_by_particle']
-
-    metabolites = u.select_atoms(metabolite_selection)
-    unique_resnames = list(set(metabolites.resnames))
-
-    residue_average = np.zeros((len(unique_resnames), msd_array.shape[0]))
-    residue_std = np.zeros((len(unique_resnames), msd_array.shape[0]))
-
-    for i, resname in enumerate(tqdm(unique_resnames, desc="Averaging per molecule type")):
-        mask = metabolites.resnames == resname
-        residue_average[i] = np.mean(msd_array.T[mask], axis=0)
-        residue_std[i] = np.std(msd_array.T[mask], axis=0)
-
-    results = {
-        'command': command,
-        'resnames': unique_resnames,
-        'residue_timeseries': residue_average,
-        'residue_std': residue_std,
-        'time': MSD.times,
-        'lagtimes': msd_data['timeseries'],
-        'dimensions': MSD.dim_fac,
-        'dt': u.trajectory.dt,
-    }
+    results = compute_msd(
+        args.topology,
+        args.trajectory,
+        metab_sel,
+        start=args.start,
+        stop=args.stop,
+        fft=args.fft,
+    )
+    results['command'] = command
 
     output_path = Path(args.output)
     with open(output_path, 'wb') as f:
