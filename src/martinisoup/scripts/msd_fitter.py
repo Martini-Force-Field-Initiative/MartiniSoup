@@ -85,8 +85,12 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
     """
     results = {}
 
-    # slope is in length_unit²/time_unit; convert to cm²/s using stored trajectory units
-    unit_factor = mda_convert(1.0, length_unit, 'cm') ** 2 / mda_convert(1.0, time_unit, 's')
+    # slope is in length_unit²/time_unit; convert to cm²/s using stored trajectory units.
+    # MDAnalysis does not recognise 'cm' or 's', so normalise to Angstrom and ps first,
+    # then apply exact physical constants (1 Å = 1e-8 cm, 1 ps = 1e-12 s).
+    length_in_angstrom = mda_convert(1.0, length_unit, 'Angstrom')
+    time_in_ps = mda_convert(1.0, time_unit, 'ps')
+    unit_factor = (length_in_angstrom * 1e-8) ** 2 / (time_in_ps * 1e-12)
 
     for timeseries, std, resname in zip(data['residue_timeseries'],
                                         data['residue_std'],
