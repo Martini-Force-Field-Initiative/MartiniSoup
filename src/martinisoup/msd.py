@@ -68,6 +68,11 @@ def compute_msd(
     MSD = msd_analysis.EinsteinMSD(u, select=metab_sel, fft=fft)
     MSD.run(start=start, stop=stop, verbose=True)
 
+    # Average box lengths [a, b, c] in Å (MDAnalysis internal) over the analysis frames
+    mean_box_lengths = np.mean(
+        [u.trajectory[i].dimensions[:3] for i in range(start, stop)], axis=0
+    )
+
     msd_data = dict(MSD.results)
     msd_array = msd_data['msds_by_particle']
 
@@ -91,4 +96,5 @@ def compute_msd(
         'dimensions': MSD.dim_fac,
         'dt': u.trajectory.dt,
         'trajectory_units': dict(u.trajectory.units),
+        'mean_box_lengths': mean_box_lengths,  # [a, b, c] in Å
     }
