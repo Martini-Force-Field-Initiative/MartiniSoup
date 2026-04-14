@@ -7,7 +7,7 @@ from pathlib import Path
 
 import MDAnalysis as mda
 
-from martinisoup.metabolite_clustering import analyse_trajectory, analyse_trajectory_parallel
+from martinisoup.metabolite_partitioning import analyse_trajectory, analyse_trajectory_parallel
 
 
 def main():

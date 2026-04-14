@@ -4,7 +4,7 @@ import sys
 
 COMMANDS = {
     "binding-frequency": "martinisoup.scripts.binding_frequency",
-    "metabolite-clustering": "martinisoup.scripts.metabolite_clustering",
+    "metabolite-partitioning": "martinisoup.scripts.metabolite_partitioning",
     "protein-clustering": "martinisoup.scripts.protein_clustering",
     "protein-rdf": "martinisoup.scripts.protein_rdf",
     "residence-times": "martinisoup.scripts.residence_times",

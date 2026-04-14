@@ -8,11 +8,12 @@ All commands are available as subcommands of the ``martinisoup`` CLI:
    martinisoup <command> [options]
 
    Commands:
-     binding-frequency    Metabolite–protein contact frequency analysis
-     residence-times      Binding event residence time analysis
-     msd                  Mean squared displacement per metabolite type
-     msd-fitter           Fit MSD data to extract diffusion coefficients
-     residence-fitter     Fit residence-time histograms by metabolite class
+     binding-frequency        Metabolite–protein contact frequency analysis
+     residence-times          Binding event residence time analysis
+     msd                      Mean squared displacement per metabolite type
+     msd-fitter               Fit MSD data to extract diffusion coefficients
+     residence-fitter         Fit residence-time histograms by metabolite class
+     metabolite-partitioning  Classify metabolites as clustered, soluble, or protein-adsorbed
 
 Default selections
 ------------------
@@ -234,3 +235,41 @@ The ``--weights`` JSON maps class names to the upper bound of the log-spaced fit
      "Ions": 500,
      "Nucleotides": 10000
    }
+
+----
+
+metabolite-partitioning
+-----------------------
+
+Classifies each metabolite residue as ``protein_adsorbed``, ``clustered``, or ``soluble`` at
+every frame of a trajectory. Clustering uses a neighbour-cutoff approach (via ``freud``) and
+protein contacts are detected with a distance cutoff.
+
+.. code-block:: bash
+
+   martinisoup metabolite-partitioning topology.tpr trajectory.xtc --output cluster_states.pkl
+
+.. code-block:: text
+
+   positional arguments:
+     topology              Topology file (e.g. .tpr, .gro)
+     trajectory            Trajectory file (e.g. .xtc, .trr)
+
+   options:
+     --metabolite-selection STR   MDAnalysis selection string for metabolites
+     --protein-selection STR      MDAnalysis selection string for proteins
+     --r-max FLOAT                Cluster neighbour cutoff in Å (default: 5.0)
+     --contact-cutoff FLOAT       Protein contact cutoff in Å (default: 5.0)
+     --start INT                  Start frame (default: 0)
+     --stop INT                   Stop frame, exclusive (default: end of trajectory)
+     --step INT                   Frame stride (default: 1)
+     --output PATH                Output pickle file (default: cluster_states.pkl)
+     --parallel                   Run analysis in parallel
+     --n_workers INT              Number of worker processes for parallel mode (default: 4)
+     --chunk_size INT             Frames per chunk in parallel mode (default: 100)
+
+Output pickle keys:
+
+- ``command`` — the full command used to produce the results
+- ``results`` — list of per-frame dicts, each with ``frame``, ``time``, and ``fractions`` keys.
+  ``fractions`` is ``{resname: {'protein_adsorbed': float, 'clustered': float, 'soluble': float}}``.
