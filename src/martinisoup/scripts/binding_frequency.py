@@ -136,7 +136,7 @@ def main():
                'n_metabolites': metabolite_counts,
                'n_proteins': system_protein_counts}
 
-    pickle_path = Path(args.pickle_out)
+    pickle_path = Path(args.output)
     with open(pickle_path, "wb") as f:
         pickle.dump(results, f)
     print(f"Saved results to {pickle_path}")
