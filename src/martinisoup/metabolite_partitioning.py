@@ -36,10 +36,27 @@ def analyse_frame(metabolites, proteins, box_length,
     cluster_idx = cl.cluster_idx.copy()
     molnums = metabolites.molnums
 
-    # Ensure one cluster ID per molecule (use minimum)
+    # Union-Find: merge any clusters bridged by the same molecule.
+    # Taking the minimum ID per molecule (the old approach) orphaned molecules
+    # that were connected through a bridging multi-bead molecule.
+    parent = {int(c): int(c) for c in np.unique(cluster_idx)}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]  # path compression
+            x = parent[x]
+        return x
+
     for mol in np.unique(molnums):
-        mask = molnums == mol
-        cluster_idx[mask] = cluster_idx[mask].min()
+        mol_clusters = [int(c) for c in np.unique(cluster_idx[molnums == mol])]
+        root = find(mol_clusters[0])
+        for cid in mol_clusters[1:]:
+            r = find(cid)
+            if r != root:
+                parent[max(root, r)] = min(root, r)
+                root = min(root, r)
+
+    cluster_idx = np.array([find(int(c)) for c in cluster_idx])
 
     # Cluster sizes in molecules (not atoms)
     cluster_to_mols = defaultdict(set)
@@ -47,19 +64,29 @@ def analyse_frame(metabolites, proteins, box_length,
         cluster_to_mols[cid].add(mol)
     cluster_sizes = {cid: len(mols) for cid, mols in cluster_to_mols.items()}
 
-    # Protein contacts (vectorised)
-    pairs, _ = capped_distance(
+    # Protein contacts per atom
+    prot_pairs, _ = capped_distance(
         metabolites.positions,
         proteins.positions,
         max_cutoff=contact_cutoff,
         box=metabolites.dimensions,
     )
-    protein_bound_atoms = np.zeros(len(metabolites), dtype=bool)
-    protein_bound_atoms[pairs[:, 0]] = True
+    prot_contacts = np.bincount(prot_pairs[:, 0], minlength=len(metabolites))
 
-    # Per-residue classification
-    results = defaultdict(lambda: {'protein_adsorbed': 0, 'soluble': 0, 'clustered': 0})
+    # Metabolite-metabolite contacts per atom (cross-residue only)
+    metab_pairs, _ = capped_distance(
+        metabolites.positions,
+        metabolites.positions,
+        max_cutoff=r_max,
+        box=metabolites.dimensions,
+    )
     res_indices = metabolites.resindices
+    cross = res_indices[metab_pairs[:, 0]] != res_indices[metab_pairs[:, 1]]
+    metab_contacts = np.bincount(metab_pairs[cross, 0], minlength=len(metabolites))
+
+    # Per-residue classification: protein_adsorbed only wins if it has strictly
+    # more bead contacts than met-met contacts; ties fall through to cluster rule.
+    counts = defaultdict(lambda: {'protein_adsorbed': 0, 'soluble': 0, 'clustered': 0})
     resnames = metabolites.resnames
     seen_residues = set()
 
@@ -69,17 +96,17 @@ def analyse_frame(metabolites, proteins, box_length,
             continue
         seen_residues.add(ri)
 
-        resname = resnames[i]
-        if protein_bound_atoms[res_indices == ri].any():
-            results[resname]['protein_adsorbed'] += 1
+        mask = res_indices == ri
+        if prot_contacts[mask].sum() > metab_contacts[mask].sum():
+            counts[resnames[i]]['protein_adsorbed'] += 1
         else:
             cid = cluster_idx[i]
             if cluster_sizes[cid] == 1:
-                results[resname]['soluble'] += 1
+                counts[resnames[i]]['soluble'] += 1
             else:
-                results[resname]['clustered'] += 1
+                counts[resnames[i]]['clustered'] += 1
 
-    return results
+    return counts
 
 
 def _normalize(counts):
