@@ -5,7 +5,10 @@ The public API is importable directly from the ``martinisoup`` package:
 
 .. code-block:: python
 
-   from martinisoup import track_serial, track_parallel, compute_msd, BindingState, ResidenceRegistry
+   from martinisoup import (
+       track_serial, track_parallel, compute_msd, BindingState, ResidenceRegistry,
+       compute_rdf, compute_rdf_parallel,
+   )
 
 MSD analysis
 ------------
@@ -73,3 +76,36 @@ Database
 --------
 
 .. autofunction:: martinisoup.database.load_metabolite_classes
+
+Metabolite partitioning
+------------------------
+
+These functions underlie the ``metabolite-partitioning`` command.
+
+.. autofunction:: martinisoup.metabolite_partitioning.analyse_frame
+
+.. autofunction:: martinisoup.metabolite_partitioning.analyse_trajectory
+
+.. autofunction:: martinisoup.metabolite_partitioning.analyse_trajectory_parallel
+
+Protein contact networks
+-------------------------
+
+These functions underlie the ``protein-clustering`` command.
+
+.. autofunction:: martinisoup.protein_clustering.build_nodes
+
+.. autofunction:: martinisoup.protein_clustering.analyse_frame
+
+.. autofunction:: martinisoup.protein_clustering.analyse_trajectory
+
+.. autofunction:: martinisoup.protein_clustering.analyse_trajectory_parallel
+
+Protein RDF
+-----------
+
+These functions underlie the ``protein-rdf`` command.
+
+.. autofunction:: martinisoup.compute_rdf
+
+.. autofunction:: martinisoup.compute_rdf_parallel
