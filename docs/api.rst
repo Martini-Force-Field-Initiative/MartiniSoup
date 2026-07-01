@@ -10,6 +10,33 @@ The public API is importable directly from the ``martinisoup`` package:
        compute_rdf, compute_rdf_parallel,
    )
 
+Parallel execution
+-------------------
+
+Every ``*_parallel`` function in the package (``compute_rdf_parallel``,
+``analyse_trajectory_parallel`` in both ``protein_clustering`` and
+``metabolite_partitioning``, ``count_contacts_parallel``, and the geometry
+pass of ``track_parallel``) is built on a single shared engine in
+``martinisoup.parallel``. The trajectory is split into frame-index chunks,
+each chunk is dispatched to a worker process that rebuilds the
+``MDAnalysis.Universe`` from the topology/trajectory file paths (Universes
+cannot be pickled across processes) and steps through its assigned frames,
+and results are reassembled in ascending frame order in the main process.
+
+A given analysis only needs to supply two module-level functions:
+
+- ``setup_fn(u, *setup_args) -> context`` — run once per worker after the
+  Universe is rebuilt (e.g. atom selections, static per-topology metadata).
+- ``per_frame_fn(u, context, ts) -> result`` — run once per frame.
+
+Both must be importable module-level functions rather than closures or
+lambdas, since they are pickled to worker processes as part of the task
+arguments.
+
+.. autofunction:: martinisoup.parallel.map_trajectory_parallel
+
+.. autofunction:: martinisoup.parallel.chunk_frame_indices
+
 MSD analysis
 ------------
 
@@ -32,6 +59,12 @@ These functions underlie the ``msd-fitter`` command.
 
 Residence time tracking
 -----------------------
+
+``track_parallel`` only parallelises the per-frame contact query (finding
+metabolite atoms within cutoff of a protein atom); the binding/unbinding
+state machine that turns those per-frame contacts into durations is
+inherently sequential (a binding event can span many frames) and runs once,
+in the main process, via the same fold used by ``track_serial``.
 
 .. autofunction:: martinisoup.track_serial
 
@@ -64,7 +97,10 @@ Contact analysis
 ----------------
 
 These functions underlie the ``binding-frequency`` command and can be called
-directly for custom workflows.
+directly for custom workflows. ``count_contacts_parallel`` accepts the same
+``start``/``stop``/``step`` frame-range parameters as ``count_contacts``
+(previously it always processed the whole trajectory); the CLI does not yet
+expose these for ``binding-frequency``.
 
 .. autofunction:: martinisoup.contact.count_contacts
 
