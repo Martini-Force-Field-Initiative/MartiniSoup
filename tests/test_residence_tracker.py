@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import MDAnalysis as mda
 from MDAnalysis.coordinates.memory import MemoryReader
-from martinisoup.residence_tracker import track_serial, _moltypes, _molnums
+from martinisoup.residence_tracker import track_serial, track_parallel, _moltypes, _molnums
 
 # Protein sits at (5, 5, 5) throughout.  With cutoff=5 Å:
 _BOUND_POS = (7.0, 5.0, 5.0)    # 2 Å from protein → bound
@@ -151,3 +151,47 @@ class TestTrackSerial:
                                     cutoff=5.0, use_time=False, step=3)
         assert result_step1.get('ATP') == [1]
         assert result_step3.get('ATP') == [3]
+
+
+class TestTrackParallel:
+    """
+    track_parallel splits the trajectory across worker processes for the
+    geometry pass, then reassembles bound-atom sets in frame order and folds
+    them through the same state machine track_serial uses. These tests
+    exercise that reassembly with deliberately uneven chunk boundaries.
+    """
+
+    def test_matches_serial_with_mixed_bound_unbound_pattern(self, tmp_path):
+        frames = [_BOUND_POS, _BOUND_POS, _UNBOUND_POS, _UNBOUND_POS, _UNBOUND_POS] * 10
+        u = _make_universe(frames)
+        gro, xtc = _write_temp_files(u, tmp_path)
+
+        serial = track_serial(gro, xtc, METAB_SEL, PROT_SEL, cutoff=5.0, use_time=False)
+        parallel = track_parallel(gro, xtc, METAB_SEL, PROT_SEL, cutoff=5.0, use_time=False,
+                                  n_workers=2, chunk_size=7)  # chunk boundary falls mid-event
+        assert serial == parallel
+
+    def test_matches_serial_when_binding_spans_chunk_boundary(self, tmp_path):
+        """A single long bound run straddling several chunk boundaries must
+        still be recorded as one contiguous duration, not split at chunk
+        edges."""
+        frames = ([_UNBOUND_POS] * 3 + [_BOUND_POS] * 20 + [_UNBOUND_POS] * 3)
+        u = _make_universe(frames)
+        gro, xtc = _write_temp_files(u, tmp_path)
+
+        serial = track_serial(gro, xtc, METAB_SEL, PROT_SEL, cutoff=5.0, use_time=False)
+        parallel = track_parallel(gro, xtc, METAB_SEL, PROT_SEL, cutoff=5.0, use_time=False,
+                                  n_workers=3, chunk_size=4)
+        assert serial == parallel == {'ATP': [20]}
+
+    def test_respects_start_stop_step(self, tmp_path):
+        frames = [_BOUND_POS, _BOUND_POS, _UNBOUND_POS, _UNBOUND_POS, _UNBOUND_POS]
+        u = _make_universe(frames)
+        gro, xtc = _write_temp_files(u, tmp_path)
+
+        serial = track_serial(gro, xtc, METAB_SEL, PROT_SEL,
+                              cutoff=5.0, use_time=False, start=2, stop=5)
+        parallel = track_parallel(gro, xtc, METAB_SEL, PROT_SEL,
+                                  cutoff=5.0, use_time=False, start=2, stop=5,
+                                  n_workers=2, chunk_size=2)
+        assert serial == parallel == {'ATP': []}

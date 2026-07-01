@@ -2,6 +2,8 @@ import numpy as np
 from scipy.spatial import cKDTree
 from tqdm import tqdm
 
+from .parallel import map_trajectory_parallel
+
 
 def build_nodes(atoms):
     """
@@ -110,28 +112,20 @@ def analyse_trajectory(u, atoms, nodes, r_max, start=0, stop=None, step=1):
 # Parallel version (multiprocessing)
 # --------------------------------------------------------------------------- #
 
-def _worker_protein_chunk(args):
-    """
-    Worker function for processing a chunk of frames.
-    Rebuilds the Universe inside the worker process.
-    """
-    topology, trajectory, frame_indices, prot_sel, r_max = args
-
-    import MDAnalysis as mda
-
-    u = mda.Universe(topology, trajectory)
+def _protein_setup(u, prot_sel, r_max):
+    """Build the per-worker context: protein atoms, molecule numbers, nodes."""
     atoms = u.select_atoms(prot_sel)
     nodes = build_nodes(atoms)
-    atom_molnums = atoms.molnums
+    return atoms, atoms.molnums, nodes, r_max
 
-    results = []
-    for frame_idx in frame_indices:
-        u.trajectory[frame_idx]
-        frame_data = analyse_frame(atoms, atom_molnums, nodes, r_max)
-        frame_data['frame'] = u.trajectory.ts.frame
-        frame_data['time'] = u.trajectory.ts.time
-        results.append(frame_data)
-    return results
+
+def _protein_per_frame(u, context, ts):
+    """Build one frame's contact network."""
+    atoms, atom_molnums, nodes, r_max = context
+    frame_data = analyse_frame(atoms, atom_molnums, nodes, r_max)
+    frame_data['frame'] = ts.frame
+    frame_data['time'] = ts.time
+    return frame_data
 
 
 def analyse_trajectory_parallel(
@@ -176,26 +170,12 @@ def analyse_trajectory_parallel(
     list of dict
         Per-frame node-link graph dicts, sorted by frame index.
     """
-    import MDAnalysis as mda
-    from concurrent.futures import ProcessPoolExecutor
-
-    u = mda.Universe(topology, trajectory)
-    stop = stop if stop is not None else len(u.trajectory)
-
-    frame_indices = list(range(start, stop, step))
-    chunks = [frame_indices[i:i + chunk_size]
-              for i in range(0, len(frame_indices), chunk_size)]
-
-    worker_args = [
-        (topology, trajectory, chunk, prot_sel, r_max)
-        for chunk in chunks
-    ]
-
-    all_results = []
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        for chunk_results in tqdm(executor.map(_worker_protein_chunk, worker_args),
-                                  total=len(chunks), desc="Analysing trajectory (parallel)"):
-            all_results.extend(chunk_results)
-
+    all_results = map_trajectory_parallel(
+        topology, trajectory, _protein_setup, _protein_per_frame,
+        setup_args=(prot_sel, r_max),
+        start=start, stop=stop, step=step,
+        n_workers=n_workers, chunk_size=chunk_size,
+        desc="Analysing trajectory (parallel)",
+    )
     all_results.sort(key=lambda x: x['frame'])
     return all_results
