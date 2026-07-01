@@ -8,7 +8,6 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
-from uncertainties.unumpy import uarray, nominal_values, std_devs
 from MDAnalysis.units import convert as mda_convert
 
 from martinisoup.database import load_metabolite_classes, DATABASE_URL
