@@ -2,6 +2,23 @@ import numpy as np
 from tqdm import tqdm
 from MDAnalysis.lib.distances import self_distance_array
 
+from .parallel import map_trajectory_parallel
+
+
+def _rdf_setup(u, prot_sel, r_max, n_bins):
+    """Build the per-worker context: protein molecules and histogram bins."""
+    protein_molecules = u.select_atoms(prot_sel).split('molecule')
+    bins = np.linspace(0, r_max, n_bins + 1)
+    return protein_molecules, bins
+
+
+def _rdf_per_frame(u, context, ts):
+    """Histogram one frame's protein centre-of-mass pairwise distances."""
+    protein_molecules, bins = context
+    coms = np.array([mol.center_of_mass(wrap=True) for mol in protein_molecules])
+    counts = np.histogram(self_distance_array(coms, box=ts.dimensions), bins=bins)[0]
+    return counts, np.prod(ts.dimensions[:3])
+
 
 def compute_rdf(u, atoms, r_max=100.0, n_bins=200, start=0, stop=None, step=1):
     """
@@ -37,16 +54,17 @@ def compute_rdf(u, atoms, r_max=100.0, n_bins=200, start=0, stop=None, step=1):
     """
     protein_molecules = atoms.split('molecule')
     n_proteins = len(protein_molecules)
+    bins = np.linspace(0, r_max, n_bins + 1)
+    context = (protein_molecules, bins)
 
-    bins    = np.linspace(0, r_max, n_bins + 1)
-    counts  = np.zeros(n_bins, dtype=np.float64)
+    counts = np.zeros(n_bins, dtype=np.float64)
     vol_acc = 0.0
     n_frames = 0
 
     for ts in tqdm(u.trajectory[start:stop:step], desc="Computing protein RDF"):
-        coms    = np.array([mol.center_of_mass(wrap=True) for mol in protein_molecules])
-        counts += np.histogram(self_distance_array(coms, box=ts.dimensions), bins=bins)[0]
-        vol_acc += np.prod(ts.dimensions[:3])
+        frame_counts, frame_vol = _rdf_per_frame(u, context, ts)
+        counts += frame_counts
+        vol_acc += frame_vol
         n_frames += 1
 
     mean_vol  = vol_acc / n_frames
@@ -55,41 +73,6 @@ def compute_rdf(u, atoms, r_max=100.0, n_bins=200, start=0, stop=None, step=1):
     gr        = (2 * mean_vol) / (n_proteins * (n_proteins - 1)) * counts / (shell_vol * n_frames)
 
     return {'r': r_mid, 'gr': gr, 'n_proteins': n_proteins, 'mean_vol': mean_vol}
-
-
-# --------------------------------------------------------------------------- #
-# Parallel version (multiprocessing)
-# --------------------------------------------------------------------------- #
-
-def _worker_rdf_chunk(args):
-    """
-    Worker function for processing a chunk of frames.
-
-    Returns partial histogram counts and accumulated box volume for the
-    assigned frames. These are summed in the main process before normalisation.
-    Rebuilds the Universe inside the worker process to avoid pickling issues.
-    """
-    topology, trajectory, frame_indices, prot_sel, r_max, n_bins = args
-
-    import MDAnalysis as mda
-    from MDAnalysis.lib.distances import self_distance_array
-
-    u = mda.Universe(topology, trajectory)
-    protein_molecules = u.select_atoms(prot_sel).split('molecule')
-    n_proteins = len(protein_molecules)
-
-    bins    = np.linspace(0, r_max, n_bins + 1)
-    counts  = np.zeros(n_bins, dtype=np.float64)
-    vol_acc = 0.0
-
-    for frame_idx in frame_indices:
-        u.trajectory[frame_idx]
-        ts   = u.trajectory.ts
-        coms = np.array([mol.center_of_mass(wrap=True) for mol in protein_molecules])
-        counts  += np.histogram(self_distance_array(coms, box=ts.dimensions), bins=bins)[0]
-        vol_acc += np.prod(ts.dimensions[:3])
-
-    return {'counts': counts, 'vol_acc': vol_acc, 'n_proteins': n_proteins}
 
 
 def compute_rdf_parallel(
@@ -108,8 +91,8 @@ def compute_rdf_parallel(
     Compute the protein centre-of-mass RDF in parallel.
 
     The trajectory slice is split into frame-index chunks and dispatched to
-    worker processes. Each worker accumulates partial histogram counts and
-    box volumes; results are merged and normalised in the main process.
+    worker processes via `map_trajectory_parallel`. Each frame's histogram
+    counts and box volume are merged and normalised in the main process.
 
     Parameters
     ----------
@@ -141,33 +124,25 @@ def compute_rdf_parallel(
         'mean_vol'   : float, mean box volume over analysed frames (Angstrom^3)
     """
     import MDAnalysis as mda
-    from concurrent.futures import ProcessPoolExecutor
 
-    u    = mda.Universe(topology, trajectory)
-    stop = stop if stop is not None else len(u.trajectory)
+    u = mda.Universe(topology, trajectory)
+    n_proteins = len(u.select_atoms(prot_sel).split('molecule'))
 
-    frame_indices = list(range(start, stop, step))
-    n_frames      = len(frame_indices)
-    chunks        = [frame_indices[i:i + chunk_size]
-                     for i in range(0, n_frames, chunk_size)]
+    per_frame_results = map_trajectory_parallel(
+        topology, trajectory, _rdf_setup, _rdf_per_frame,
+        setup_args=(prot_sel, r_max, n_bins),
+        start=start, stop=stop, step=step,
+        n_workers=n_workers, chunk_size=chunk_size,
+        desc="Computing protein RDF (parallel)",
+    )
 
-    worker_args = [
-        (topology, trajectory, chunk, prot_sel, r_max, n_bins)
-        for chunk in chunks
-    ]
-
-    bins         = np.linspace(0, r_max, n_bins + 1)
+    bins = np.linspace(0, r_max, n_bins + 1)
     total_counts = np.zeros(n_bins, dtype=np.float64)
-    total_vol    = 0.0
-    n_proteins   = None
-
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        for result in tqdm(executor.map(_worker_rdf_chunk, worker_args),
-                           total=len(chunks), desc="Computing protein RDF (parallel)"):
-            total_counts += result['counts']
-            total_vol    += result['vol_acc']
-            if n_proteins is None:
-                n_proteins = result['n_proteins']
+    total_vol = 0.0
+    for frame_counts, frame_vol in per_frame_results:
+        total_counts += frame_counts
+        total_vol += frame_vol
+    n_frames = len(per_frame_results)
 
     mean_vol  = total_vol / n_frames
     r_mid     = 0.5 * (bins[:-1] + bins[1:])
