@@ -42,7 +42,7 @@ def compute_msd(
         Start frame. Defaults to the first frame of the second half of the
         trajectory.
     stop : int, optional
-        Stop frame. Defaults to ``start + 100``.
+        Stop frame. Defaults to ``start + 100``, clipped to the trajectory length.
     fft : bool
         Use the FFT algorithm for MSD calculation. Default ``True``.
 
@@ -52,26 +52,37 @@ def compute_msd(
         Keys:
 
         - ``resnames`` — list of unique metabolite type names
-        - ``residue_timeseries`` — mean MSD per type, shape ``(n_types, n_lagtimes)``
-        - ``residue_std`` — standard deviation across molecules, shape ``(n_types, n_lagtimes)``
+        - ``residue_timeseries`` — mean MSD per type in Å², shape ``(n_types, n_lagtimes)``
+        - ``residue_std`` — standard deviation across particles in Å², shape ``(n_types, n_lagtimes)``
         - ``time`` — absolute times corresponding to each lagtime
-        - ``lagtimes`` — MSD values averaged across all molecules
+        - ``lagtimes`` — MSD values (Å²) averaged across all particles
         - ``dimensions`` — dimensionality factor used in the MSD calculation
         - ``dt`` — trajectory timestep in ps
+        - ``mean_box_lengths`` — box lengths ``[a, b, c]`` in Å averaged over the analysis frames
+
+        All quantities are in MDAnalysis internal units (Å, ps), regardless
+        of the units used in the trajectory file.
     """
     u = Universe(topology, trajectory)
-    u.trajectory.add_transformations(NoJump())
 
-    start = start if start is not None else int(len(u.trajectory) / 2)
+    n_frames = len(u.trajectory)
+    start = start if start is not None else int(n_frames / 2)
     stop = stop if stop is not None else start + 100
+    stop = min(stop, n_frames)
+
+    # Average box lengths [a, b, c] in Å (MDAnalysis internal) over the analysis
+    # frames. Done before attaching NoJump so the transformation isn't applied
+    # (and reset) needlessly while reading box dimensions.
+    mean_box_lengths = np.mean(
+        [ts.dimensions[:3] for ts in u.trajectory[start:stop]], axis=0
+    )
+
+    # NoJump must be attached on frame 0 so it initialises its reference correctly
+    u.trajectory[0]
+    u.trajectory.add_transformations(NoJump())
 
     MSD = msd_analysis.EinsteinMSD(u, select=metab_sel, fft=fft)
     MSD.run(start=start, stop=stop, verbose=True)
-
-    # Average box lengths [a, b, c] in Å (MDAnalysis internal) over the analysis frames
-    mean_box_lengths = np.mean(
-        [u.trajectory[i].dimensions[:3] for i in range(start, stop)], axis=0
-    )
 
     msd_data = dict(MSD.results)
     msd_array = msd_data['msds_by_particle']
@@ -95,6 +106,5 @@ def compute_msd(
         'lagtimes': msd_data['timeseries'],
         'dimensions': MSD.dim_fac,
         'dt': u.trajectory.dt,
-        'trajectory_units': dict(u.trajectory.units),
         'mean_box_lengths': mean_box_lengths,  # [a, b, c] in Å
     }
