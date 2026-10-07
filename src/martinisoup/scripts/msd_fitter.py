@@ -9,7 +9,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 from uncertainties.unumpy import uarray, nominal_values, std_devs
-from MDAnalysis.units import convert as mda_convert
 
 from martinisoup.database import load_metabolite_classes, DATABASE_URL
 
@@ -98,6 +97,7 @@ def average_replicas(datasets: list[dict]) -> dict:
     return {
         'lagtimes': ref['lagtimes'],
         'dt': ref['dt'],
+        'dimensions': ref.get('dimensions', 3),
         'resnames': resnames,
         'residue_timeseries': averaged_timeseries,
         'residue_std': averaged_std,
@@ -107,7 +107,6 @@ def average_replicas(datasets: list[dict]) -> dict:
 def fit_and_plot(data: dict, lagtimes: np.ndarray,
                  cut_start: int, cut_end: int,
                  output_dir: Path,
-                 time_unit: str, length_unit: str,
                  box_lengths: np.ndarray | None = None,
                  temperature: float | None = None,
                  eta: float = 0.7103,
@@ -121,17 +120,20 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
 
     The Yeh-Hummer correction is applied when both *temperature* and *box_lengths*
     are provided.
+
+    MSDs are expected in MDAnalysis internal units (Å² against lag times in ps),
+    which is what ``martinisoup msd`` writes regardless of the trajectory file's
+    native units.
     """
     results = {}
 
     apply_correction = temperature is not None and box_lengths is not None
 
-    # slope is in length_unit²/time_unit; convert to cm²/s using stored trajectory units.
-    # MDAnalysis does not recognise 'cm' or 's', so normalise to Angstrom and ps first,
-    # then apply exact physical constants (1 Å = 1e-8 cm, 1 ps = 1e-12 s).
-    length_in_angstrom = mda_convert(1.0, length_unit, 'Angstrom')
-    time_in_ps = mda_convert(1.0, time_unit, 'ps')
-    unit_factor = (length_in_angstrom * 1e-8) ** 2 / (time_in_ps * 1e-12)
+    # slope is in Å²/ps (MDAnalysis internal units); 1 Å = 1e-8 cm, 1 ps = 1e-12 s
+    unit_factor = (1e-8) ** 2 / 1e-12
+
+    # Einstein relation: MSD = 2 * d * D * t
+    einstein_factor = 2 * data.get('dimensions', 3)
 
     for timeseries, std, resname in zip(data['residue_timeseries'],
                                         data['residue_std'],
@@ -143,10 +145,10 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
 
         mod = LinearModel()
         pars = mod.guess(y_fit, x=x_fit)
-        result = mod.fit(y_fit, params=pars, x=x_fit, weights=1 / y_err ** 2)
+        result = mod.fit(y_fit, params=pars, x=x_fit, weights=1 / y_err)
 
-        D = result.params['slope'].value / 6 * unit_factor
-        D_err = result.params['slope'].stderr / 6 * unit_factor
+        D = result.params['slope'].value / einstein_factor * unit_factor
+        D_err = result.params['slope'].stderr / einstein_factor * unit_factor
 
         if apply_correction:
             D_corr = yeh_hummer_correction(D, box_lengths, temperature, eta)
@@ -171,8 +173,8 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         ax.plot(x_fit, result.best_fit,
                 c='#3F615A', label='fit', lw=3, zorder=10)
         ax.set_title(resname, fontsize=20)
-        ax.set_xlabel(f"Time ({time_unit})")
-        ax.set_ylabel(f"MSD ({length_unit}²)")
+        ax.set_xlabel("Time (ps)")
+        ax.set_ylabel("MSD (Å²)")
         ax.legend(loc='upper left', title=legend_title)
         if metabolite_classes is not None:
             fig.savefig(output_dir / f"{cl}_{resname}.png", bbox_inches='tight')
@@ -256,7 +258,7 @@ def parse_args():
              "Use --database alone to fetch the remote default, or supply a local CSV path."
     )
     parser.add_argument(
-        "--temperature", type=float, default=300,
+        "--temperature", type=float, default=None,
         help="Simulation temperature in K. When provided, applies the Yeh-Hummer "
              "finite-size correction using the box dimensions stored in the MSD data."
     )
@@ -283,9 +285,6 @@ def main():
         metabolite_classes = load_metabolite_classes(args.database)
 
     datasets = load_datasets(args.files)
-    traj_units = datasets[0]['trajectory_units']
-    time_unit = traj_units['time']
-    length_unit = traj_units['length']
 
     box_lengths = None
     if args.temperature is not None:
@@ -295,7 +294,6 @@ def main():
     lagtimes = build_lagtimes(datasets[0])
 
     results = fit_and_plot(data, lagtimes, args.cut_start, args.cut_end, output_dir,
-                           time_unit, length_unit,
                            box_lengths=box_lengths,
                            temperature=args.temperature,
                            eta=args.eta,
