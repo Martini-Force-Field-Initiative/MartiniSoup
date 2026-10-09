@@ -2,6 +2,10 @@
 
 Package for analysing metabolite interactions in heterogeneous cytosolic MD simulations.
 
+> [!CAUTION]
+> MartiniSoup has been developed primarily for analysis for a specific paper and project, to be used by the developers. It has not (yet) been developed as a general-purpose analysis suite. There may be bugs and/or errors in your results. Proceed with caution! If you find any errors, we welcome both [issues](https://github.com/Martini-Force-Field-Initiative/MartiniSoup/issues) and [pull request](https://github.com/Martini-Force-Field-Initiative/MartiniSoup/pulls) contributions.
+
+
 Full documentation is available at [martinisoup.readthedocs.io](https://martinisoup.readthedocs.io).
 
 ## Features
