@@ -12,6 +12,7 @@ from martinisoup.protein_clustering import (
     analyse_trajectory_parallel,
     build_nodes,
 )
+from martinisoup.units import Q_, UnitSystem, quantity_arg, unit_string
 
 
 def main():
@@ -22,8 +23,9 @@ def main():
     parser.add_argument("trajectory", type=str, help="Trajectory file (e.g., .xtc, .trr)")
     parser.add_argument("--protein-selection", default=None,
                         help="MDAnalysis selection string for proteins")
-    parser.add_argument("--r-max", type=float, default=6.0,
-                        help="Contact distance cutoff in Angstrom (default: 6.0)")
+    parser.add_argument("--r-max", type=quantity_arg('angstrom'), default=Q_(6.0, 'angstrom'),
+                        help="Contact distance cutoff (default: 6 Å). A bare number is in Å; "
+                             "a value with units, e.g. '0.6 nm', is converted.")
     parser.add_argument("--start", type=int, default=0,
                         help="Start frame (default: 0)")
     parser.add_argument("--stop", type=int, default=None,
@@ -37,7 +39,7 @@ def main():
     parser.add_argument("--n_workers", type=int, default=4,
                         help="Number of worker processes for parallel mode (default: 4)")
     parser.add_argument("--chunk_size", type=int, default=100,
-                        help="Frames per chunk in parallel mode (default: 100)")
+                        help="Approximate frames per part in parallel mode (default: 100)")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)
@@ -76,13 +78,19 @@ def main():
             step=args.step,
         )
 
+    unit_system = UnitSystem.from_universe(u)
     output_path = Path(args.output)
     with open(output_path, "wb") as f:
         pickle.dump({
             'command': command,
             'nodes': nodes,
-            'r_max': args.r_max,
+            'r_max': unit_system.length_magnitude(args.r_max),
             'frames': frames,
+            'units': {
+                'r_max': unit_string(unit_system.length_unit),
+                'frames.frame': 'dimensionless',
+                'frames.time': unit_string(unit_system.time_unit),
+            },
         }, f)
     print(f"Saved results to {output_path}")
 

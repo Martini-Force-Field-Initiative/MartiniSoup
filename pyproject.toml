@@ -7,18 +7,30 @@ name = "martinisoup"
 version = "0.1.0"
 description = "Tools for cytosolic simulation analysis"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "lmfit",
-    "MDAnalysis",
+    "MDAnalysis>=2.8", # parallel AnalysisBase backends
     "tqdm",
     "scipy",
     "freud-analysis",
     "pandas",
     "requests",
-    "tidynamics", 
+    "tidynamics",
+    "pint>=0.24.4",
 ]
 
 [project.scripts]
 martinisoup = "martinisoup.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: end-to-end tests that run the martinisoup commands on files on disk",
+]

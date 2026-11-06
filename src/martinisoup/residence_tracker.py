@@ -1,8 +1,12 @@
 from tqdm import tqdm
 from scipy.spatial import cKDTree as KDTree
-from .data_structures import BindingState, ResidenceRegistry
-from MDAnalysis import Universe, transformations
+from MDAnalysis import Universe
+from MDAnalysis.analysis.base import ResultsGroup
 from MDAnalysis.exceptions import NoDataError
+
+from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
+from .data_structures import BindingState, ResidenceRegistry
+from .units import unit_string
 
 
 def _moltypes(ag):
@@ -21,6 +25,192 @@ def _molnums(ag):
         return ag.resindices
 
 
+def _build_moltype_mapping(metabolites):
+    """
+    Build a stable moltype -> integer id mapping and the per-atom id list.
+
+    Returns
+    -------
+    moltype_table : dict
+        {moltype_id: moltype_name}
+    moltype_ids : list of int
+        Per-atom moltype id, in atom order.
+    """
+    unique = {}
+    names = []
+    moltype_ids = []
+    for mt in _moltypes(metabolites):
+        if mt not in unique:
+            unique[mt] = len(names)
+            names.append(mt)
+        moltype_ids.append(unique[mt])
+    return {i: name for i, name in enumerate(names)}, moltype_ids
+
+
+# --------------------------------------------------------------------------- #
+# Per-frame contact query
+# --------------------------------------------------------------------------- #
+
+def _bound_metabolite_atoms(proteins, metabolites, box, cutoff):
+    """
+    Indices (into ``metabolites``) of metabolite atoms within ``cutoff`` of
+    any protein atom, using periodic KDTrees.
+
+    Positions are wrapped into the unit cell first (cKDTree's ``boxsize``
+    requires it). This uses the same calculation as the ``wrap``
+    transformation, but leaves the Universe untouched.
+    """
+    boxsize = box[:3]
+    protein_tree = KDTree(proteins.wrap(compound='atoms', inplace=False), boxsize=boxsize)
+    metabolite_tree = KDTree(metabolites.wrap(compound='atoms', inplace=False), boxsize=boxsize)
+    sdm = protein_tree.sparse_distance_matrix(metabolite_tree, cutoff)
+    return frozenset(pair[1] for pair in sdm.keys())
+
+
+# --------------------------------------------------------------------------- #
+# State machine fold (shared by serial and parallel paths)
+# --------------------------------------------------------------------------- #
+
+def _run_state_machine(
+    frame_results, moltype_ids, n_atoms, molnums, moltype_table,
+    desc="Running state machine", total=None,
+):
+    """
+    Fold an ordered sequence of (frame_idx, stamp, bound_atom_indices) triples
+    into final per-moltype residence durations.
+
+    The fold is inherently sequential and stateful (a binding run may span
+    many frames, and therefore many parallel parts), so it is never
+    parallelised: ResidenceTracker runs it once in ``_conclude``, in the main
+    process, after the per-frame contact sets from all parts have been
+    concatenated in frame order.
+    """
+    tracker = {i: BindingState(moltype_id=moltype_ids[i]) for i in range(n_atoms)}
+
+    last_stamp = None
+    for _, stamp, bound_met_atoms in tqdm(frame_results, desc=desc, total=total):
+        last_stamp = stamp
+        for atom_idx, state in tracker.items():
+            state.update_bound(atom_idx in bound_met_atoms, stamp)
+
+    final_stamp = last_stamp if last_stamp is not None else 0
+    for state in tracker.values():
+        state.finalize(final_stamp)
+
+    return ResidenceRegistry(
+        tracker=tracker,
+        molnums=molnums,
+        moltype_table=moltype_table,
+        moltype_ids=moltype_ids,
+    ).get_durations_by_type()
+
+
+class ResidenceTracker(ParallelAnalysisBase):
+    """
+    Metabolite residence times on proteins.
+
+    Phase 1 (per frame, parallelisable)
+        ``_single_frame`` finds the metabolite atoms within ``cutoff`` of any
+        protein atom. Each frame is independent, so parts of the trajectory
+        can be processed by separate workers; their per-frame contact sets
+        are concatenated in frame order.
+
+    Phase 2 (sequential, in ``_conclude``)
+        The ordered contact sets are folded through a per-atom
+        bound/unbound state machine to give binding durations. Because this
+        sees the full ordered sequence, binding events that span part
+        boundaries are recorded as single durations.
+
+    Parameters
+    ----------
+    metabolites : MDAnalysis.AtomGroup
+        Metabolite atoms. Uses ``moltypes``/``molnums`` if present (e.g. from
+        a .tpr), falling back to ``resnames``/``resindices``.
+    proteins : MDAnalysis.AtomGroup
+    cutoff : float or pint.Quantity
+        Contact distance cutoff (default: 4.0). A plain number is in the
+        Universe's length unit (Å for a Universe read with default settings).
+    use_time : bool
+        Stamp events with ``ts.time`` (True, default) or ``ts.frame``
+        (False); durations are differences of these stamps.
+    **kwargs
+        Passed to AnalysisBase (e.g. verbose).
+
+    Results
+    -------
+    results.durations : dict
+        {moltype_name: [durations]}. With ``use_time=True`` durations are in
+        the Universe's time unit (ps by default); with ``use_time=False``
+        they are numbers of frames (dimensionless).
+    results.stamp : str
+        ``'time'`` or ``'frame'``, matching ``use_time``.
+    results.dt : float
+        Time between trajectory frames, in the Universe's time unit. A
+        duration counted in frames times ``dt`` is a time.
+    results.cutoff : float
+        The cutoff used, in the Universe's length unit.
+    results.units : dict
+        {result name: pint unit string}.
+
+    Examples
+    --------
+    >>> rt = ResidenceTracker(metabolites, proteins, cutoff=5.0)
+    >>> rt.run(backend='multiprocessing', n_workers=4)
+    >>> rt.results.durations
+    """
+
+    def __init__(self, metabolites, proteins, cutoff=4.0, use_time=True, **kwargs):
+        super().__init__(metabolites.universe.trajectory, **kwargs)
+        self._metabolites = metabolites
+        self._proteins = proteins
+        self._cutoff = self.unit_system.length_magnitude(cutoff)
+        self._use_time = use_time
+
+        self._moltype_table, self._moltype_ids = _build_moltype_mapping(metabolites)
+        self._molnums = list(_molnums(metabolites))
+
+    def _prepare(self):
+        self.results.frame_contacts = []
+
+    def _single_frame(self):
+        ts = self._ts
+        stamp = ts.time if self._use_time else ts.frame
+        bound = _bound_metabolite_atoms(
+            self._proteins, self._metabolites, ts.dimensions, self._cutoff,
+        )
+        self.results.frame_contacts.append((ts.frame, stamp, bound))
+
+    def _get_aggregator(self):
+        return ResultsGroup(lookup={'frame_contacts': ResultsGroup.flatten_sequence})
+
+    def _conclude(self):
+        # Parts are already concatenated in frame order, but the state
+        # machine's correctness depends on strict ordering, so make that
+        # guarantee explicit rather than implicit.
+        frame_contacts = sorted(self.results.frame_contacts, key=lambda x: x[0])
+        self.results.durations = _run_state_machine(
+            frame_contacts, self._moltype_ids, len(self._metabolites),
+            self._molnums, self._moltype_table,
+            desc="Running state machine", total=len(frame_contacts),
+        )
+        # The per-frame contact sets are only needed for the fold.
+        del self.results['frame_contacts']
+
+        self.results.stamp = 'time' if self._use_time else 'frame'
+        self.results.cutoff = self._cutoff
+        self.results.dt = self._trajectory.dt
+        self.results.units = {
+            'durations': (unit_string(self.unit_system.time_unit)
+                          if self._use_time else 'dimensionless'),
+            'cutoff': unit_string(self.unit_system.length_unit),
+            'dt': unit_string(self.unit_system.time_unit),
+        }
+
+
+# --------------------------------------------------------------------------- #
+# Function wrappers (used by the residence-times command)
+# --------------------------------------------------------------------------- #
+
 def track_serial(
     topology,
     trajectory,
@@ -33,94 +223,27 @@ def track_serial(
     use_time=True,
 ):
     """
-    Single-threaded residence-time analysis.
+    Single-process residence-time analysis.
+
+    Thin wrapper around :class:`ResidenceTracker` run with the serial
+    backend.
+
+    ``cutoff`` may be a pint Quantity; a plain number is in Å (the Universe
+    is read with default settings, so its data is in Å and ps).
 
     Returns
     -------
     dict
-        {moltype_name: [durations]}
+        {moltype_name: [durations]}. Durations are in ps with
+        ``use_time=True`` (the default), or numbers of frames otherwise.
     """
-
     u = Universe(topology, trajectory)
-    ag = u.atoms
-    u.trajectory.add_transformations(transformations.wrap(ag))
-
-    stop = stop if stop is not None else len(u.trajectory)
-
-    proteins = u.select_atoms(prot_sel)
-    metabolites = u.select_atoms(metab_sel)
-
-    unique = {}
-    moltype_table = []
-    moltype_ids = []
-    for mt in _moltypes(metabolites):
-        if mt not in unique:
-            unique[mt] = len(moltype_table)
-            moltype_table.append(mt)
-        moltype_ids.append(unique[mt])
-
-    n_atoms = len(metabolites)
-    tracker = {i: BindingState(moltype_id=moltype_ids[i]) for i in range(n_atoms)}
-
-    last_stamp = None
-    for ts in tqdm(u.trajectory[start:stop:step], desc="Analyzing trajectory"):
-        stamp = ts.time if use_time else ts.frame
-        last_stamp = stamp
-
-        protein_tree = KDTree(proteins.positions, boxsize=u.dimensions[:3])
-        metabolite_tree = KDTree(metabolites.positions, boxsize=u.dimensions[:3])
-        sdm = protein_tree.sparse_distance_matrix(metabolite_tree, cutoff)
-
-        bound_met_atoms = {pair[1] for pair in sdm.keys()}
-        for atom_idx, state in tracker.items():
-            state.update_bound(atom_idx in bound_met_atoms, stamp)
-
-    final_stamp = last_stamp if last_stamp is not None else 0
-    for state in tracker.values():
-        state.finalize(final_stamp)
-
-    return ResidenceRegistry(
-        tracker=tracker,
-        molnums=list(_molnums(metabolites)),
-        moltype_table={i: name for i, name in enumerate(moltype_table)},
-        moltype_ids=list(moltype_ids),
-    ).get_durations_by_type()
-
-
-# --------------------------------------------------------------------------- #
-# Parallel helpers
-# --------------------------------------------------------------------------- #
-
-def _compute_bound_atoms_chunk(args):
-    """
-    Worker: jump to each frame in *frame_indices*, run the KDTree query, and
-    return a list of (frame_idx, stamp, frozenset_of_bound_metabolite_atom_indices).
-
-    Rebuilds the Universe inside the worker process so the main process does
-    not need to share any MDAnalysis state.
-    """
-    (topology, trajectory, prot_sel, metab_sel, cutoff, frame_indices, use_time) = args
-
-    u = Universe(topology, trajectory)
-    ag = u.atoms
-    u.trajectory.add_transformations(transformations.wrap(ag))
-
-    proteins = u.select_atoms(prot_sel)
-    metabolites = u.select_atoms(metab_sel)
-
-    results = []
-    for frame_idx in frame_indices:
-        u.trajectory[frame_idx]
-        stamp = u.trajectory.ts.time if use_time else u.trajectory.ts.frame
-
-        protein_tree  = KDTree(proteins.positions,   boxsize=u.dimensions[:3])
-        metabolite_tree = KDTree(metabolites.positions, boxsize=u.dimensions[:3])
-        sdm = protein_tree.sparse_distance_matrix(metabolite_tree, cutoff)
-
-        bound_met_atoms = frozenset(pair[1] for pair in sdm.keys())
-        results.append((frame_idx, stamp, bound_met_atoms))
-
-    return results
+    rt = ResidenceTracker(
+        u.select_atoms(metab_sel), u.select_atoms(prot_sel),
+        cutoff=cutoff, use_time=use_time, verbose=True,
+    )
+    rt.run(start=start, stop=stop, step=step)
+    return rt.results.durations
 
 
 def track_parallel(
@@ -137,89 +260,32 @@ def track_parallel(
     use_time=True,
 ):
     """
-    Two-phase parallel residence-time analysis.
+    Parallel residence-time analysis.
 
-    Phase 1 (parallel)
-        Workers compute, for each frame, the set of metabolite atom indices
-        within *cutoff* of any protein atom.  Each frame is independent so
-        this is embarrassingly parallel.
+    Thin wrapper around :class:`ResidenceTracker` run with MDAnalysis's
+    ``multiprocessing`` backend. The per-frame contact query is split into
+    contiguous parts of roughly ``chunk_size`` frames over ``n_workers``
+    processes; the state machine then runs once, in order, in the main
+    process, so results are identical to :func:`track_serial`.
 
-    Phase 2 (sequential, cheap)
-        The bound-sets are reassembled in frame order and fed into the same
-        BindingState machine used by track_serial.  Because Phase 2 sees the
-        full ordered sequence, binding events that span chunk boundaries are
-        recorded correctly.
+    ``cutoff`` may be a pint Quantity; a plain number is in Å (the Universe
+    is read with default settings, so its data is in Å and ps).
 
     Returns
     -------
     dict
-        {moltype_name: [durations]}
+        {moltype_name: [durations]}. Durations are in ps with
+        ``use_time=True`` (the default), or numbers of frames otherwise.
     """
-    from concurrent.futures import ProcessPoolExecutor
-
-    # ------------------------------------------------------------------ #
-    # Setup: moltype mapping and atom metadata (done once in main process)
-    # ------------------------------------------------------------------ #
     u = Universe(topology, trajectory)
-    ag = u.atoms
-    u.trajectory.add_transformations(transformations.wrap(ag))
+    n_parts = n_parts_for_chunk_size(u.trajectory, start, stop, step, chunk_size)
 
-    n_frames = len(u.trajectory)
-    stop = stop if stop is not None else n_frames
-
-    metabolites = u.select_atoms(metab_sel)
-
-    unique = {}
-    moltype_table = []
-    moltype_ids = []
-    for mt in _moltypes(metabolites):
-        if mt not in unique:
-            unique[mt] = len(moltype_table)
-            moltype_table.append(mt)
-        moltype_ids.append(unique[mt])
-
-    molnums  = list(_molnums(metabolites))
-    n_atoms  = len(metabolites)
-
-    # ------------------------------------------------------------------ #
-    # Phase 1: parallel KDTree queries
-    # ------------------------------------------------------------------ #
-    frame_indices = list(range(start, stop, step))
-    chunks = [frame_indices[i:i + chunk_size]
-              for i in range(0, len(frame_indices), chunk_size)]
-
-    worker_args = [
-        (topology, trajectory, prot_sel, metab_sel, cutoff, chunk, use_time)
-        for chunk in chunks
-    ]
-
-    all_frame_results = []
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        for result in tqdm(executor.map(_compute_bound_atoms_chunk, worker_args),
-                           total=len(chunks), desc="Computing contacts (parallel)"):
-            all_frame_results.extend(result)
-
-    # Sort so Phase 2 sees frames in trajectory order
-    all_frame_results.sort(key=lambda x: x[0])
-
-    # ------------------------------------------------------------------ #
-    # Phase 2: sequential state machine (cheap — no geometry)
-    # ------------------------------------------------------------------ #
-    tracker = {i: BindingState(moltype_id=moltype_ids[i]) for i in range(n_atoms)}
-
-    last_stamp = None
-    for _, stamp, bound_met_atoms in tqdm(all_frame_results, desc="Running state machine"):
-        last_stamp = stamp
-        for atom_idx, state in tracker.items():
-            state.update_bound(atom_idx in bound_met_atoms, stamp)
-
-    final_stamp = last_stamp if last_stamp is not None else 0
-    for state in tracker.values():
-        state.finalize(final_stamp)
-
-    return ResidenceRegistry(
-        tracker=tracker,
-        molnums=molnums,
-        moltype_table={i: name for i, name in enumerate(moltype_table)},
-        moltype_ids=list(moltype_ids),
-    ).get_durations_by_type()
+    rt = ResidenceTracker(
+        u.select_atoms(metab_sel), u.select_atoms(prot_sel),
+        cutoff=cutoff, use_time=use_time,
+    )
+    rt.run(
+        start=start, stop=stop, step=step,
+        backend='multiprocessing', n_workers=n_workers, n_parts=n_parts,
+    )
+    return rt.results.durations

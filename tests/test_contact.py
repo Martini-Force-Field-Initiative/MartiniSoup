@@ -1,7 +1,9 @@
 import pytest
 import numpy as np
 import MDAnalysis as mda
-from martinisoup.contact import _merge_counts, count_contacts
+from martinisoup.contact import (
+    ContactCounts, _merge_counts, count_contacts, count_contacts_parallel,
+)
 
 
 def _make_universe(protein_positions, metabolite_positions,
@@ -183,3 +185,118 @@ class TestCountContacts:
         # Metabolite at (12,10,10): 2 Å from TYPE_A protein, 5 Å from TYPE_B protein
         assert result['TYPE_A']['ATP'] == 1
         assert result['TYPE_B'].get('ATP', 0) == 0
+
+
+def _make_multiframe_universe(n_frames, n_prot=3, n_met=3, box_length=100.0, seed=0):
+    """Multi-frame universe with random positions, for parallel/serial comparisons."""
+    from MDAnalysis.coordinates.memory import MemoryReader
+
+    rng = np.random.default_rng(seed)
+    n_atoms = n_prot + n_met
+
+    u = mda.Universe.empty(
+        n_atoms, n_residues=n_atoms, n_segments=2,
+        atom_resindex=list(range(n_atoms)),
+        residue_segindex=[0] * n_prot + [1] * n_met,
+        trajectory=True,
+    )
+    u.add_TopologyAttr('name', ['CA'] * n_prot + ['C1'] * n_met)
+    u.add_TopologyAttr('resname', ['ALA'] * n_prot + ['ATP'] * n_met)
+    u.add_TopologyAttr('resid', list(range(1, n_atoms + 1)))
+
+    coords = rng.uniform(0, box_length, size=(n_frames, n_atoms, 3))
+    dims = np.tile([box_length] * 3 + [90.0, 90.0, 90.0], (n_frames, 1))
+    u.trajectory = MemoryReader(coords, order='fac', dimensions=dims, dt=1.0)
+    return u
+
+
+def _write_temp_files(u, tmp_path):
+    gro = str(tmp_path / 'top.gro')
+    xtc = str(tmp_path / 'traj.xtc')
+    u.trajectory[0]
+    u.atoms.write(gro)
+    with mda.Writer(xtc, n_atoms=u.atoms.n_atoms) as w:
+        for ts in u.trajectory:
+            w.write(u.atoms)
+    return gro, xtc
+
+
+class TestCountContactsParallel:
+
+    def test_matches_serial_across_uneven_chunk_boundaries(self, tmp_path):
+        u = _make_multiframe_universe(37, n_prot=3, n_met=4)
+        gro, xtc = _write_temp_files(u, tmp_path)
+
+        u_direct = mda.Universe(gro, xtc)
+        proteins = u_direct.select_atoms('resname ALA')
+        metabolites = u_direct.select_atoms('resname ATP')
+        protein_types = _all_protein_types(proteins)
+
+        serial = count_contacts(u_direct, proteins, metabolites,
+                                protein_types, cutoff_radius=20.0)
+        parallel = count_contacts_parallel(
+            gro, xtc, 'resname ALA', 'resname ATP', protein_types,
+            cutoff_radius=20.0, n_workers=2, chunk_size=9,
+        )
+        assert serial == parallel
+
+    def test_respects_start_stop_step(self, tmp_path):
+        u = _make_multiframe_universe(20, n_prot=2, n_met=2)
+        gro, xtc = _write_temp_files(u, tmp_path)
+
+        u_direct = mda.Universe(gro, xtc)
+        proteins = u_direct.select_atoms('resname ALA')
+        metabolites = u_direct.select_atoms('resname ATP')
+        protein_types = _all_protein_types(proteins)
+
+        serial = count_contacts(u_direct, proteins, metabolites,
+                                protein_types, cutoff_radius=20.0,
+                                start=2, stop=18, step=3)
+        parallel = count_contacts_parallel(
+            gro, xtc, 'resname ALA', 'resname ATP', protein_types,
+            cutoff_radius=20.0, start=2, stop=18, step=3,
+            n_workers=2, chunk_size=3,
+        )
+        assert serial == parallel
+
+
+class TestContactCounts:
+
+    @pytest.mark.parametrize("n_workers,n_parts", [(2, 2), (2, 9), (2, 24)])
+    def test_multiprocessing_matches_serial(self, n_workers, n_parts):
+        """
+        n_parts > 4 * n_workers is the regression case for the stock
+        MDAnalysis multiprocessing backend (see martinisoup.analysis_base).
+        """
+        u = _make_multiframe_universe(53, n_prot=3, n_met=5)
+        proteins = u.select_atoms('resname ALA')
+        metabolites = u.select_atoms('resname ATP')
+        protein_types = _all_protein_types(proteins)
+
+        serial = ContactCounts(proteins, metabolites, protein_types, 20.0).run(
+            start=3, stop=50, step=2)
+        parallel = ContactCounts(proteins, metabolites, protein_types, 20.0).run(
+            start=3, stop=50, step=2,
+            backend='multiprocessing', n_workers=n_workers, n_parts=n_parts,
+        )
+        assert serial.results.counts['PROT']['ATP'] > 0
+        assert parallel.results.counts == serial.results.counts
+
+    def test_protein_type_without_contacts_keeps_empty_entry(self):
+        """Serial and parallel runs both report every protein type."""
+        u = _make_multiframe_universe(12, n_prot=3, n_met=3)
+        proteins = u.select_atoms('resname ALA')
+        metabolites = u.select_atoms('resname ATP')
+        protein_types = {
+            'HIT': {'mask': np.array([True, True, True]), 'n_monomers': 1},
+            'EMPTY': {'mask': np.array([False, False, False]), 'n_monomers': 1},
+        }
+
+        serial = ContactCounts(proteins, metabolites, protein_types, 30.0).run()
+        parallel = ContactCounts(proteins, metabolites, protein_types, 30.0).run(
+            backend='multiprocessing', n_workers=2, n_parts=3)
+
+        for result in (serial, parallel):
+            assert set(result.results.counts) == {'HIT', 'EMPTY'}
+            assert result.results.counts['EMPTY'] == {}
+        assert parallel.results.counts == serial.results.counts

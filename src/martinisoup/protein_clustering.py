@@ -1,6 +1,9 @@
 import numpy as np
 from scipy.spatial import cKDTree
-from tqdm import tqdm
+from MDAnalysis.analysis.base import ResultsGroup
+
+from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
+from .units import unit_string
 
 
 def build_nodes(atoms):
@@ -43,7 +46,8 @@ def analyse_frame(atoms, atom_molnums, nodes, r_max):
     nodes : list of dict
         Node list as returned by build_nodes.
     r_max : float
-        Contact distance cutoff in Angstrom.
+        Contact distance cutoff, as a plain number in the same length unit as
+        the atom positions.
 
     Returns
     -------
@@ -71,67 +75,113 @@ def analyse_frame(atoms, atom_molnums, nodes, r_max):
     }
 
 
+class ProteinContactNetwork(ParallelAnalysisBase):
+    """
+    Per-frame protein-protein contact networks.
+
+    For every frame, protein atoms within ``r_max`` of each other are found
+    with a periodic KDTree and lifted to molecule level, giving one NetworkX
+    node-link graph per frame (see :func:`analyse_frame`). In a parallel run
+    each part builds the graphs for its own frames and the parts' lists are
+    concatenated in frame order.
+
+    Parameters
+    ----------
+    atoms : MDAnalysis.AtomGroup
+        Protein atoms. Requires ``molnums`` (and ``moltypes`` if ``nodes`` is
+        not given), e.g. from a GROMACS .tpr.
+    r_max : float or pint.Quantity
+        Contact distance cutoff (default: 6.0). A plain number is in the
+        Universe's length unit (Å for a Universe read with default settings).
+    nodes : list of dict, optional
+        Node list as returned by :func:`build_nodes`. Built from ``atoms``
+        if not given.
+    **kwargs
+        Passed to AnalysisBase (e.g. verbose).
+
+    Results
+    -------
+    results.frames : list of dict
+        Node-link graph dicts with added 'frame' and 'time' keys, in frame
+        order. 'time' is in the Universe's time unit (ps by default).
+    results.nodes : list of dict
+        The node list shared by every frame.
+    results.r_max : float
+        The cutoff used, in the Universe's length unit.
+    results.units : dict
+        {result name: pint unit string}, using dotted paths for per-frame
+        fields (e.g. 'frames.time').
+
+    Examples
+    --------
+    >>> net = ProteinContactNetwork(u.select_atoms(prot_sel), r_max=6.0)
+    >>> net.run(backend='multiprocessing', n_workers=4)
+    >>> net.results.frames
+    """
+
+    def __init__(self, atoms, r_max=6.0, nodes=None, **kwargs):
+        super().__init__(atoms.universe.trajectory, **kwargs)
+        self._atoms = atoms
+        self._atom_molnums = atoms.molnums
+        self._nodes = build_nodes(atoms) if nodes is None else nodes
+        self._r_max = self.unit_system.length_magnitude(r_max)
+
+    def _prepare(self):
+        self.results.frames = []
+
+    def _single_frame(self):
+        frame_data = analyse_frame(
+            self._atoms, self._atom_molnums, self._nodes, self._r_max,
+        )
+        frame_data['frame'] = self._ts.frame
+        frame_data['time'] = self._ts.time
+        self.results.frames.append(frame_data)
+
+    def _get_aggregator(self):
+        return ResultsGroup(lookup={'frames': ResultsGroup.flatten_sequence})
+
+    def _conclude(self):
+        self.results.nodes = self._nodes
+        self.results.r_max = self._r_max
+        self.results.units = {
+            'frames.frame': 'dimensionless',
+            'frames.time': unit_string(self.unit_system.time_unit),
+            'r_max': unit_string(self.unit_system.length_unit),
+        }
+
+
 def analyse_trajectory(u, atoms, nodes, r_max, start=0, stop=None, step=1):
     """
-    Run per-frame protein contact network analysis over a trajectory slice.
+    Run per-frame protein contact network analysis over a trajectory slice
+    (serial).
+
+    Thin wrapper around :class:`ProteinContactNetwork` run with the serial
+    backend.
 
     Parameters
     ----------
     u : MDAnalysis.Universe
+        Unused beyond consistency with other analyses; the trajectory is taken
+        from ``atoms.universe``.
     atoms : MDAnalysis.AtomGroup
         Protein atoms.
     nodes : list of dict
         Node list as returned by build_nodes.
-    r_max : float
-        Contact distance cutoff in Angstrom.
-    start : int
-        First frame index.
-    stop : int or None
-        Last frame index (exclusive). None means end of trajectory.
-    step : int
-        Frame stride.
+    r_max : float or pint.Quantity
+        Contact distance cutoff. A plain number is in the Universe's length
+        unit (Å for a Universe read with default settings).
+    start, stop, step : int
+        Frame range, as in ``u.trajectory[start:stop:step]``.
 
     Returns
     -------
     list of dict
-        Each entry is a node-link graph dict with added 'frame' and 'time' keys.
+        Each entry is a node-link graph dict with added 'frame' and 'time'
+        keys, in frame order.
     """
-    atom_molnums = atoms.molnums
-    results = []
-    for ts in tqdm(u.trajectory[start:stop:step]):
-        frame_data = analyse_frame(atoms, atom_molnums, nodes, r_max)
-        frame_data['frame'] = ts.frame
-        frame_data['time'] = ts.time
-        results.append(frame_data)
-    return results
-
-
-# --------------------------------------------------------------------------- #
-# Parallel version (multiprocessing)
-# --------------------------------------------------------------------------- #
-
-def _worker_protein_chunk(args):
-    """
-    Worker function for processing a chunk of frames.
-    Rebuilds the Universe inside the worker process.
-    """
-    topology, trajectory, frame_indices, prot_sel, r_max = args
-
-    import MDAnalysis as mda
-
-    u = mda.Universe(topology, trajectory)
-    atoms = u.select_atoms(prot_sel)
-    nodes = build_nodes(atoms)
-    atom_molnums = atoms.molnums
-
-    results = []
-    for frame_idx in frame_indices:
-        u.trajectory[frame_idx]
-        frame_data = analyse_frame(atoms, atom_molnums, nodes, r_max)
-        frame_data['frame'] = u.trajectory.ts.frame
-        frame_data['time'] = u.trajectory.ts.time
-        results.append(frame_data)
-    return results
+    net = ProteinContactNetwork(atoms, r_max=r_max, nodes=nodes, verbose=True)
+    net.run(start=start, stop=stop, step=step)
+    return net.results.frames
 
 
 def analyse_trajectory_parallel(
@@ -148,9 +198,10 @@ def analyse_trajectory_parallel(
     """
     Parallel per-frame protein contact network analysis.
 
-    Each frame is independent, so the trajectory slice is split into chunks
-    and dispatched to worker processes. Results are collected and returned
-    sorted by frame index.
+    Thin wrapper around :class:`ProteinContactNetwork` run with MDAnalysis's
+    ``multiprocessing`` backend. The frame range is split into contiguous
+    parts of roughly ``chunk_size`` frames, distributed over ``n_workers``
+    processes.
 
     Parameters
     ----------
@@ -158,44 +209,29 @@ def analyse_trajectory_parallel(
         Paths to topology and trajectory files.
     prot_sel : str
         MDAnalysis selection string for proteins.
-    r_max : float
-        Contact distance cutoff in Angstrom.
-    start : int
-        First frame index.
-    stop : int or None
-        Last frame index (exclusive). None means end of trajectory.
-    step : int
-        Frame stride.
+    r_max : float or pint.Quantity
+        Contact distance cutoff. A plain number is in the Universe's length
+        unit (Å for a Universe read with default settings).
+    start, stop, step : int
+        Frame range, as in ``u.trajectory[start:stop:step]``.
     n_workers : int
         Number of worker processes.
     chunk_size : int
-        Frames per chunk.
+        Approximate frames per part.
 
     Returns
     -------
     list of dict
-        Per-frame node-link graph dicts, sorted by frame index.
+        Per-frame node-link graph dicts, in frame order.
     """
     import MDAnalysis as mda
-    from concurrent.futures import ProcessPoolExecutor
 
     u = mda.Universe(topology, trajectory)
-    stop = stop if stop is not None else len(u.trajectory)
+    n_parts = n_parts_for_chunk_size(u.trajectory, start, stop, step, chunk_size)
 
-    frame_indices = list(range(start, stop, step))
-    chunks = [frame_indices[i:i + chunk_size]
-              for i in range(0, len(frame_indices), chunk_size)]
-
-    worker_args = [
-        (topology, trajectory, chunk, prot_sel, r_max)
-        for chunk in chunks
-    ]
-
-    all_results = []
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        for chunk_results in tqdm(executor.map(_worker_protein_chunk, worker_args),
-                                  total=len(chunks), desc="Analysing trajectory (parallel)"):
-            all_results.extend(chunk_results)
-
-    all_results.sort(key=lambda x: x['frame'])
-    return all_results
+    net = ProteinContactNetwork(u.select_atoms(prot_sel), r_max=r_max)
+    net.run(
+        start=start, stop=stop, step=step,
+        backend='multiprocessing', n_workers=n_workers, n_parts=n_parts,
+    )
+    return net.results.frames

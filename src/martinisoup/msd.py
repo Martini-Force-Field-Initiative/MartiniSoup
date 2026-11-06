@@ -14,6 +14,8 @@ from MDAnalysis import Universe
 from MDAnalysis.analysis import msd as msd_analysis
 from MDAnalysis.transformations import NoJump
 
+from .units import UnitSystem, unit_string
+
 
 def compute_msd(
     topology: str,
@@ -42,7 +44,7 @@ def compute_msd(
         Start frame. Defaults to the first frame of the second half of the
         trajectory.
     stop : int, optional
-        Stop frame. Defaults to ``start + 100``.
+        Stop frame. Defaults to ``start + 100``, clipped to the trajectory length.
     fft : bool
         Use the FFT algorithm for MSD calculation. Default ``True``.
 
@@ -52,26 +54,42 @@ def compute_msd(
         Keys:
 
         - ``resnames`` — list of unique metabolite type names
-        - ``residue_timeseries`` — mean MSD per type, shape ``(n_types, n_lagtimes)``
-        - ``residue_std`` — standard deviation across molecules, shape ``(n_types, n_lagtimes)``
-        - ``time`` — absolute times corresponding to each lagtime
-        - ``lagtimes`` — MSD values averaged across all molecules
+        - ``residue_timeseries`` — mean MSD per type (L²), shape ``(n_types, n_lagtimes)``
+        - ``residue_std`` — standard deviation across particles (L²), shape ``(n_types, n_lagtimes)``
+        - ``time`` — absolute times of the analysed frames (T)
+        - ``lagtimes`` — lag time of each MSD point, ``index × dt`` (T)
+        - ``msd`` — MSD averaged across all particles (L²)
         - ``dimensions`` — dimensionality factor used in the MSD calculation
-        - ``dt`` — trajectory timestep in ps
+        - ``dt`` — trajectory timestep (T)
+        - ``mean_box_lengths`` — box lengths ``[a, b, c]`` averaged over the analysis frames (L)
+        - ``units`` — pint unit string for each of the keys above
+
+        L and T are the length and time units of the data as MDAnalysis holds
+        it: Å and ps, as the Universe is read with default settings,
+        regardless of the units used in the trajectory file. They are
+        recorded explicitly in ``units``.
     """
     u = Universe(topology, trajectory)
-    u.trajectory.add_transformations(NoJump())
+    unit_system = UnitSystem.from_universe(u)
 
-    start = start if start is not None else int(len(u.trajectory) / 2)
+    n_frames = len(u.trajectory)
+    start = start if start is not None else int(n_frames / 2)
     stop = stop if stop is not None else start + 100
+    stop = min(stop, n_frames)
+
+    # Average box lengths [a, b, c] (in the Universe's length unit) over the analysis
+    # frames. Done before attaching NoJump so the transformation isn't applied
+    # (and reset) needlessly while reading box dimensions.
+    mean_box_lengths = np.mean(
+        [ts.dimensions[:3] for ts in u.trajectory[start:stop]], axis=0
+    )
+
+    # NoJump must be attached on frame 0 so it initialises its reference correctly
+    u.trajectory[0]
+    u.trajectory.add_transformations(NoJump())
 
     MSD = msd_analysis.EinsteinMSD(u, select=metab_sel, fft=fft)
     MSD.run(start=start, stop=stop, verbose=True)
-
-    # Average box lengths [a, b, c] in Å (MDAnalysis internal) over the analysis frames
-    mean_box_lengths = np.mean(
-        [u.trajectory[i].dimensions[:3] for i in range(start, stop)], axis=0
-    )
 
     msd_data = dict(MSD.results)
     msd_array = msd_data['msds_by_particle']
@@ -92,9 +110,19 @@ def compute_msd(
         'residue_timeseries': residue_average,
         'residue_std': residue_std,
         'time': MSD.times,
-        'lagtimes': msd_data['timeseries'],
+        'lagtimes': np.arange(len(msd_data['timeseries'])) * u.trajectory.dt,
+        'msd': msd_data['timeseries'],
         'dimensions': MSD.dim_fac,
         'dt': u.trajectory.dt,
-        'trajectory_units': dict(u.trajectory.units),
-        'mean_box_lengths': mean_box_lengths,  # [a, b, c] in Å
+        'mean_box_lengths': mean_box_lengths,  # [a, b, c]
+        'units': {
+            'residue_timeseries': unit_string(unit_system.length_unit ** 2),
+            'residue_std': unit_string(unit_system.length_unit ** 2),
+            'time': unit_string(unit_system.time_unit),
+            'lagtimes': unit_string(unit_system.time_unit),
+            'msd': unit_string(unit_system.length_unit ** 2),
+            'dimensions': 'dimensionless',
+            'dt': unit_string(unit_system.time_unit),
+            'mean_box_lengths': unit_string(unit_system.length_unit),
+        },
     }

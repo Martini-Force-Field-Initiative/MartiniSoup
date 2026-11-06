@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from lmfit.models import PowerLawModel
 
 from martinisoup.database import load_metabolite_classes, DATABASE_URL
+from martinisoup.units import Q_, get_units, ureg
 
 COLORS = {
     'Ions':              '#337AEA',
@@ -36,18 +37,52 @@ DEFAULT_WEIGHTS_END = {
 DEFAULT_COLOR = '#888888'
 
 
+# Unit that residence lifetimes are histogrammed and plotted in; the
+# --bins-* options are log10 values of this unit.
+LIFETIME_UNIT = 'nanosecond'
+
+
 def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
+    """
+    Load residence-time pickles as {resname: (lifetimes, counts)} per file.
+
+    Lifetimes are converted from the units recorded in each file to
+    LIFETIME_UNIT (ns). Files written before units were recorded are assumed
+    to hold ps, which is what ``martinisoup residence-times`` has always
+    written. Durations counted in frames (``residence-times --frames``,
+    recorded as dimensionless) are converted to time with the saved time
+    between frames, ``'dt'``; a frame-counted file without ``'dt'`` is
+    rejected.
+    """
+    key = 'residences.values' if summarised else 'residences'
     datasets = []
     for f in files:
         with open(f, 'rb') as fh:
             data = pickle.load(fh)
+        units = get_units(data, legacy={key: 'picosecond'}, source=f)
+        duration_unit = ureg.Unit(units[key])
+        if duration_unit.is_compatible_with(ureg.second):
+            to_lifetime = Q_(1.0, duration_unit).to(LIFETIME_UNIT).magnitude
+        elif duration_unit.dimensionless and 'dt' in data and 'dt' in units:
+            # Counted in frames: one frame lasts dt.
+            to_lifetime = Q_(data['dt'], units['dt']).to(LIFETIME_UNIT).magnitude
+        else:
+            raise ValueError(
+                f"{f}: residence durations are in {units[key]!r}, not a time, "
+                "and the file has no 'dt' (time between frames) to convert "
+                f"them with, so they cannot be converted to {LIFETIME_UNIT}."
+            )
+
         residences = data['residences']
         if not summarised:
             residences = {
                 resname: np.unique(durations, return_counts=True)
                 for resname, durations in residences.items()
             }
-        datasets.append(residences)
+        datasets.append({
+            resname: (np.asarray(values) * to_lifetime, counts)
+            for resname, (values, counts) in residences.items()
+        })
     return datasets
 
 
@@ -75,8 +110,8 @@ def build_histograms(datasets: list[dict],
             else:
                 key = resname
 
-            values, counts = unique_lifetimes
-            hist = np.histogram(values / 1000, bins=bins, weights=counts)
+            values, counts = unique_lifetimes  # values already in LIFETIME_UNIT
+            hist = np.histogram(values, bins=bins, weights=counts)
             groups[key].append(hist)
 
         for key, vals in groups.items():
@@ -110,6 +145,8 @@ def fit_and_plot(hists: dict, weights_end: dict, output_dir: Path,
         counts_std = all_counts.reshape(-1, all_counts.shape[-1]).std(axis=0)
 
         x = (edges[1:] + edges[:-1]) / 2
+        # Numerical rescaling for the fit only (it changes the fitted
+        # amplitude, not the exponent); not a unit conversion of the data.
         x0 = x / 1000
 
         w_end = weights_end.get(key, 1e3)  # necessary because of log binning
@@ -187,7 +224,9 @@ def save_results(results: dict, output_dir: Path,
 
     pkl_file = output_dir / "residence_exponents.pkl"
     with open(pkl_file, 'wb') as fh:
-        pickle.dump({"command": command, "results": results}, fh)
+        pickle.dump({"command": command,
+                     "results": results,  # {key: [exponent, exponent_err]}
+                     "units": {"results": "dimensionless"}}, fh)
     print(f"Results written to {pkl_file}")
 
 
@@ -209,11 +248,14 @@ def parse_args():
     )
     parser.add_argument(
         "--bins-start", type=float, default=0.0,
-        help="Start of log-spaced bin range in ns (default: 0, i.e. 10^0 = 1)."
+        help="Start of the log-spaced bin range, as log10 of the lifetime in ns "
+             "(default: 0, i.e. 10^0 = 1 ns). Input lifetimes are converted to ns "
+             "using the units recorded in each file."
     )
     parser.add_argument(
         "--bins-stop", type=float, default=np.log10(500),
-        help="End of log-spaced bin range in ns as log10 value (default: log10(500))."
+        help="End of the log-spaced bin range, as log10 of the lifetime in ns "
+             "(default: log10(500), i.e. 500 ns)."
     )
     parser.add_argument(
         "--bins-n", type=int, default=25,

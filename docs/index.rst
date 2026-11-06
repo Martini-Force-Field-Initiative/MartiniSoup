@@ -13,6 +13,7 @@ MartiniSoup provides a command-line interface and Python API for:
 - **Protein RDF** — computes the protein centre-of-mass radial distribution function
 - **Parallel trajectory processing** — optional multiprocessing support for large trajectories
 - **Data fitting** — power-law fitting for residence times and linear fitting for MSD
+- **Consistent units** — units are read from the trajectory data, can be given on the command line (e.g. ``--cutoff "0.5 nm"``), and are recorded in every output file (see :doc:`units`)
 
 .. toctree::
    :maxdepth: 2
@@ -20,4 +21,6 @@ MartiniSoup provides a command-line interface and Python API for:
 
    installation
    cli
+   units
    api
+   changelog
