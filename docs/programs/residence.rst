@@ -34,7 +34,7 @@ and records event durations.
                                   run the state machine sequentially (Phase 2).
                                   Produces identical results to serial mode.
      --n_workers INT              Number of worker processes for parallel mode (default: 4)
-     --chunk_size INT             Frames per chunk in parallel mode (default: 100)
+     --chunk_size INT             Approximate frames per part in parallel mode (default: 100)
 
 Output pickle keys:
 

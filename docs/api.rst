@@ -6,41 +6,50 @@ The public API is importable directly from the ``martinisoup`` package:
 .. code-block:: python
 
    from martinisoup import (
-       track_serial, track_parallel, compute_msd, BindingState, ResidenceRegistry,
+       ResidenceTracker, track_serial, track_parallel,
+       compute_msd, BindingState, ResidenceRegistry,
        ProteinRDF, compute_rdf, compute_rdf_parallel,
    )
 
 Parallel execution
 -------------------
 
-``compute_rdf_parallel``, ``count_contacts_parallel`` and the
-``analyse_trajectory_parallel`` functions in ``protein_clustering`` and
-``metabolite_partitioning`` are built on MDAnalysis's own parallel
-``AnalysisBase`` machinery, via
-``martinisoup.analysis_base.ParallelAnalysisBase`` (see
-:class:`martinisoup.ProteinRDF`,
-:class:`martinisoup.contact.ContactCounts`,
-:class:`martinisoup.protein_clustering.ProteinContactNetwork` and
-:class:`martinisoup.metabolite_partitioning.MetabolitePartitioning`). ``ParallelAnalysisBase``
-replaces MDAnalysis's stock ``multiprocessing`` backend with one that sends
-each frame range to a worker as its own task. The stock backend returns
-duplicated results when ``n_parts > 4 * n_workers``. The geometry pass of
-``track_parallel`` is still built on a single shared engine in
-``martinisoup.parallel``. The trajectory is split into frame-index chunks,
-each chunk is dispatched to a worker process that rebuilds the
-``MDAnalysis.Universe`` from the topology/trajectory file paths (Universes
-cannot be pickled across processes) and steps through its assigned frames,
-and results are reassembled in ascending frame order in the main process.
+Every trajectory analysis in the package is an
+``MDAnalysis.analysis.base.AnalysisBase`` subclass, built on
+``martinisoup.analysis_base.ParallelAnalysisBase``:
 
-A given analysis only needs to supply two module-level functions:
+- :class:`martinisoup.ProteinRDF` (``protein-rdf``)
+- :class:`martinisoup.contact.ContactCounts` (``binding-frequency``)
+- :class:`martinisoup.protein_clustering.ProteinContactNetwork` (``protein-clustering``)
+- :class:`martinisoup.metabolite_partitioning.MetabolitePartitioning` (``metabolite-partitioning``)
+- :class:`martinisoup.ResidenceTracker` (``residence-times``)
 
-- ``setup_fn(u, *setup_args) -> context`` — run once per worker after the
-  Universe is rebuilt (e.g. atom selections, static per-topology metadata).
-- ``per_frame_fn(u, context, ts) -> result`` — run once per frame.
+Each can be run directly on AtomGroups with any of the ``serial``,
+``multiprocessing`` or ``dask`` backends:
 
-Both must be importable module-level functions rather than closures or
-lambdas, since they are pickled to worker processes as part of the task
-arguments.
+.. code-block:: python
+
+   rdf = ProteinRDF(u.select_atoms("protein"), r_max=100.0, n_bins=200)
+   rdf.run(start=0, stop=None, step=1, backend="multiprocessing", n_workers=4)
+
+The frame range is split into ``n_parts`` contiguous parts (default: one per
+worker). Each part runs ``_prepare`` and ``_single_frame`` on its own copy of
+the analysis, the parts' ``results`` are merged by the class's aggregator,
+and ``_conclude`` runs once in the main process. The function-style
+``*_parallel`` entry points used by the command-line programs are thin
+wrappers. They build the Universe from file paths and convert ``chunk_size``
+into ``n_parts`` (about ``chunk_size`` frames per part).
+
+``ParallelAnalysisBase`` replaces MDAnalysis's stock ``multiprocessing``
+backend with one that sends each part to a worker as its own task. The stock
+backend (checked against MDAnalysis 2.10) batches several parts onto one
+analysis object when ``n_parts > 4 * n_workers``, which silently returns
+duplicated results. New analyses should subclass ``ParallelAnalysisBase``
+rather than ``AnalysisBase`` directly.
+
+``martinisoup.parallel`` (``map_trajectory_parallel``,
+``chunk_frame_indices``) is the previous custom engine. No analysis uses it
+any more, and it is retained only until it is removed.
 
 .. autofunction:: martinisoup.parallel.map_trajectory_parallel
 
@@ -69,11 +78,17 @@ These functions underlie the ``msd-fitter`` command.
 Residence time tracking
 -----------------------
 
-``track_parallel`` only parallelises the per-frame contact query (finding
-metabolite atoms within cutoff of a protein atom); the binding/unbinding
+``ResidenceTracker`` only parallelises the per-frame contact query (finding
+metabolite atoms within cutoff of a protein atom). The binding/unbinding
 state machine that turns those per-frame contacts into durations is
-inherently sequential (a binding event can span many frames) and runs once,
-in the main process, via the same fold used by ``track_serial``.
+inherently sequential, because a binding event can span many frames and
+therefore many parallel parts. It runs once, in the main process, in
+``_conclude``, after the per-frame contact sets from all parts have been
+concatenated in frame order, so serial and parallel runs give identical
+durations. ``track_serial`` and ``track_parallel`` are thin wrappers that
+return ``results.durations``.
+
+.. autoclass:: martinisoup.ResidenceTracker
 
 .. autofunction:: martinisoup.track_serial
 
