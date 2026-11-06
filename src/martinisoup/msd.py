@@ -56,8 +56,9 @@ def compute_msd(
         - ``resnames`` — list of unique metabolite type names
         - ``residue_timeseries`` — mean MSD per type (L²), shape ``(n_types, n_lagtimes)``
         - ``residue_std`` — standard deviation across particles (L²), shape ``(n_types, n_lagtimes)``
-        - ``time`` — absolute times corresponding to each lagtime (T)
-        - ``lagtimes`` — MSD values averaged across all particles (L²)
+        - ``time`` — absolute times of the analysed frames (T)
+        - ``lagtimes`` — lag time of each MSD point, ``index × dt`` (T)
+        - ``msd`` — MSD averaged across all particles (L²)
         - ``dimensions`` — dimensionality factor used in the MSD calculation
         - ``dt`` — trajectory timestep (T)
         - ``mean_box_lengths`` — box lengths ``[a, b, c]`` averaged over the analysis frames (L)
@@ -109,7 +110,8 @@ def compute_msd(
         'residue_timeseries': residue_average,
         'residue_std': residue_std,
         'time': MSD.times,
-        'lagtimes': msd_data['timeseries'],
+        'lagtimes': np.arange(len(msd_data['timeseries'])) * u.trajectory.dt,
+        'msd': msd_data['timeseries'],
         'dimensions': MSD.dim_fac,
         'dt': u.trajectory.dt,
         'mean_box_lengths': mean_box_lengths,  # [a, b, c]
@@ -117,7 +119,8 @@ def compute_msd(
             'residue_timeseries': unit_string(unit_system.length_unit ** 2),
             'residue_std': unit_string(unit_system.length_unit ** 2),
             'time': unit_string(unit_system.time_unit),
-            'lagtimes': unit_string(unit_system.length_unit ** 2),
+            'lagtimes': unit_string(unit_system.time_unit),
+            'msd': unit_string(unit_system.length_unit ** 2),
             'dimensions': 'dimensionless',
             'dt': unit_string(unit_system.time_unit),
             'mean_box_lengths': unit_string(unit_system.length_unit),

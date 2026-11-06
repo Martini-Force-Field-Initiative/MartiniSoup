@@ -19,20 +19,44 @@ FIT_TIME = 'picosecond'
 # Units diffusion coefficients are reported in.
 D_UNIT = 'centimeter ** 2 / second'
 
-_LENGTH_SQUARED_KEYS = ('residue_timeseries', 'residue_std', 'lagtimes')
-_TIME_KEYS = ('time', 'dt')
+_LENGTH_SQUARED_KEYS = ('residue_timeseries', 'residue_std', 'msd')
+_TIME_KEYS = ('time', 'dt', 'lagtimes')
 _LENGTH_KEYS = ('mean_box_lengths',)
 
 # `martinisoup msd` has always written MDAnalysis internal units (Å, ps), so
 # files from before units were recorded are in these. (Their
 # 'trajectory_units' entry describes the trajectory file, not the data, and
-# must not be used.)
+# must not be used.) These files also use the old key layout, in which
+# 'lagtimes' held the all-particle MSD (see _upgrade_old_layout).
 _LEGACY_UNITS = {
-    **{k: 'angstrom ** 2' for k in _LENGTH_SQUARED_KEYS},
-    **{k: 'picosecond' for k in _TIME_KEYS},
-    **{k: 'angstrom' for k in _LENGTH_KEYS},
+    'residue_timeseries': 'angstrom ** 2',
+    'residue_std': 'angstrom ** 2',
+    'lagtimes': 'angstrom ** 2',
+    'time': 'picosecond',
+    'dt': 'picosecond',
+    'mean_box_lengths': 'angstrom',
     'dimensions': 'dimensionless',
 }
+
+
+def _upgrade_old_layout(data: dict, units: dict) -> None:
+    """
+    Convert the old MSD key layout to the current one, in place.
+
+    Older ``martinisoup msd`` output stored the all-particle MSD under
+    ``'lagtimes'`` and had no ``'msd'`` key. Current output stores it under
+    ``'msd'`` and puts the actual lag times (``index × dt``) in
+    ``'lagtimes'``. The old layout is recognised by the absence of ``'msd'``
+    together with ``'lagtimes'`` having units of length².
+    """
+    if 'msd' in data or 'lagtimes' not in data:
+        return
+    if ureg.Unit(units['lagtimes']).dimensionality != ureg.Unit('meter ** 2').dimensionality:
+        return
+    data['msd'] = data.pop('lagtimes')
+    units['msd'] = units.pop('lagtimes')
+    data['lagtimes'] = np.arange(len(data['msd'])) * data['dt']
+    units['lagtimes'] = units['dt']
 
 
 def load_datasets(files: list[str]) -> list[dict]:
@@ -42,7 +66,10 @@ def load_datasets(files: list[str]) -> list[dict]:
     MSDs end up in FIT_LENGTH² (Å²), times in FIT_TIME (ps) and box lengths
     in FIT_LENGTH (Å), whatever units each file recorded; the converted
     units are stored in each dataset's ``'units'``. Files without recorded
-    units are assumed to be in Å and ps, with a warning.
+    units are assumed to be in Å and ps, with a warning. Files in the old key
+    layout (all-particle MSD under ``'lagtimes'``) are converted to the
+    current one, so every dataset has ``'msd'`` (length²) and ``'lagtimes'``
+    (time).
     """
     targets = {
         **{k: f'{FIT_LENGTH} ** 2' for k in _LENGTH_SQUARED_KEYS},
@@ -53,7 +80,8 @@ def load_datasets(files: list[str]) -> list[dict]:
     for f in files:
         with open(f, 'rb') as fh:
             data = pickle.load(fh)
-        units = get_units(data, legacy=_LEGACY_UNITS, source=f)
+        units = dict(get_units(data, legacy=_LEGACY_UNITS, source=f))
+        _upgrade_old_layout(data, units)
         for key, target in targets.items():
             if key in data:
                 data[key] = Q_(np.asarray(data[key]), units[key]).to(target).magnitude
@@ -63,10 +91,15 @@ def load_datasets(files: list[str]) -> list[dict]:
 
 
 def build_lagtimes(data: dict) -> np.ndarray:
-    """Lag times in the units of ``data['dt']`` (FIT_TIME after load_datasets)."""
-    nframes = len(data['lagtimes'])
-    timestep = data['dt']
-    return np.arange(nframes) * timestep
+    """
+    Lag times of the MSD points, in FIT_TIME for datasets from load_datasets.
+
+    Uses the saved ``'lagtimes'``; for a dataset that has not been through
+    load_datasets and is in the old layout, computes ``index × dt``.
+    """
+    if 'msd' in data:
+        return np.asarray(data['lagtimes'])
+    return np.arange(len(data['lagtimes'])) * data['dt']
 
 
 def yeh_hummer_correction(D, box_lengths, temperature, eta):
@@ -155,6 +188,8 @@ def average_replicas(datasets: list[dict]) -> dict:
 
     return {
         'lagtimes': ref['lagtimes'],
+        'msd': (np.mean([ds['msd'] for ds in datasets], axis=0)
+                if all('msd' in ds for ds in datasets) else None),
         'dt': ref['dt'],
         'dimensions': ref.get('dimensions', 3),
         'resnames': resnames,

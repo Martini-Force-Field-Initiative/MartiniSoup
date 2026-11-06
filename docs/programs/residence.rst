@@ -29,6 +29,9 @@ and records event durations.
      --stop INT                   Stop frame (default: end of trajectory)
      --step INT                   Frame step size (default: 1)
      --output PATH                Output pickle file (default: lifetimes.pkl)
+     --frames                     Measure durations as numbers of trajectory frames
+                                  instead of time (default: time, in ps). The time
+                                  between frames is saved as ``dt``.
      --summary FILE               Write a summary pickle (unique residence times and
                                   their counts) to FILE
      --parallel                   Run contact detection in parallel (Phase 1), then
@@ -40,17 +43,26 @@ and records event durations.
 Output pickle keys:
 
 - ``command`` — the full command used to produce the results
-- ``residences`` — ``{molecule_type: [durations]}`` dictionary; durations in ps
+- ``residences`` — ``{molecule_type: [durations]}`` dictionary; durations in ps, or in
+  frames with ``--frames``
+- ``stamp`` — ``'time'``, or ``'frame'`` with ``--frames``
+- ``dt`` — time between trajectory frames (ps); a duration in frames × ``dt`` is a time
 - ``cutoff`` — the distance cutoff used (Å)
-- ``units`` — ``{'residences': 'picosecond', 'cutoff': 'angstrom'}``
+- ``units`` — ``{'residences': 'picosecond', 'dt': 'picosecond', 'cutoff': 'angstrom'}``;
+  with ``--frames``, ``'residences'`` is ``'dimensionless'``
 
 Summary pickle keys (``--summary``):
 
-- ``command``, ``cutoff`` — as above
-- ``residences`` — ``{molecule_type: (values, counts)}``: the unique durations (ps) and how
-  often each occurred
+- ``command``, ``stamp``, ``dt``, ``cutoff`` — as above
+- ``residences`` — ``{molecule_type: (values, counts)}``: the unique durations (ps, or frames
+  with ``--frames``) and how often each occurred
 - ``units`` — ``{'residences.values': 'picosecond', 'residences.counts': 'dimensionless',
-  'cutoff': 'angstrom'}``
+  'dt': 'picosecond', 'cutoff': 'angstrom'}``; with ``--frames``, ``'residences.values'`` is
+  ``'dimensionless'``
+
+.. note::
+   **New:** the ``--frames`` option, and the ``stamp`` and ``dt`` output keys. See
+   :doc:`../changelog`.
 
 Every output pickle includes a ``units`` dict giving the unit of each saved value; see :doc:`../units`.
 
@@ -106,7 +118,9 @@ Outputs:
 
 Input lifetimes are converted to ns using the units recorded in each file, so files written
 in different time units can be combined. Files from older versions without recorded units are
-assumed to be in ps (with a warning). Durations counted in frames are rejected.
+assumed to be in ps (with a warning). Durations counted in frames (``residence-times
+--frames``) are converted to time using the ``dt`` saved alongside them, so they can be fitted
+and combined with time-based files; a frame-counted file without ``dt`` is rejected.
 
 The ``--weights`` JSON maps class names to the upper bound of the log-spaced fit weights:
 

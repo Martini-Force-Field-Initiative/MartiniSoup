@@ -23,3 +23,4 @@ MartiniSoup provides a command-line interface and Python API for:
    cli
    units
    api
+   changelog

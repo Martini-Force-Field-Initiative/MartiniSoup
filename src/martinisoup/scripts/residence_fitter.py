@@ -49,8 +49,10 @@ def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
     Lifetimes are converted from the units recorded in each file to
     LIFETIME_UNIT (ns). Files written before units were recorded are assumed
     to hold ps, which is what ``martinisoup residence-times`` has always
-    written. Durations counted in frames (dimensionless) are rejected, as
-    they cannot be converted to a time.
+    written. Durations counted in frames (``residence-times --frames``,
+    recorded as dimensionless) are converted to time with the saved time
+    between frames, ``'dt'``; a frame-counted file without ``'dt'`` is
+    rejected.
     """
     key = 'residences.values' if summarised else 'residences'
     datasets = []
@@ -58,12 +60,17 @@ def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
         with open(f, 'rb') as fh:
             data = pickle.load(fh)
         units = get_units(data, legacy={key: 'picosecond'}, source=f)
-        time_unit = ureg.Unit(units[key])
-        if not time_unit.is_compatible_with(ureg.second):
+        duration_unit = ureg.Unit(units[key])
+        if duration_unit.is_compatible_with(ureg.second):
+            to_lifetime = Q_(1.0, duration_unit).to(LIFETIME_UNIT).magnitude
+        elif duration_unit.dimensionless and 'dt' in data and 'dt' in units:
+            # Counted in frames: one frame lasts dt.
+            to_lifetime = Q_(data['dt'], units['dt']).to(LIFETIME_UNIT).magnitude
+        else:
             raise ValueError(
-                f"{f}: residence durations are in {units[key]!r}, not a time "
-                "(e.g. counted in frames), so they cannot be converted to "
-                f"{LIFETIME_UNIT}."
+                f"{f}: residence durations are in {units[key]!r}, not a time, "
+                "and the file has no 'dt' (time between frames) to convert "
+                f"them with, so they cannot be converted to {LIFETIME_UNIT}."
             )
 
         residences = data['residences']
@@ -73,7 +80,7 @@ def load_datasets(files: list[str], summarised: bool = True) -> list[dict]:
                 for resname, durations in residences.items()
             }
         datasets.append({
-            resname: (Q_(np.asarray(values), time_unit).to(LIFETIME_UNIT).magnitude, counts)
+            resname: (np.asarray(values) * to_lifetime, counts)
             for resname, (values, counts) in residences.items()
         })
     return datasets

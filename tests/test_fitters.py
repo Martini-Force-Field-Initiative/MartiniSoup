@@ -45,16 +45,26 @@ def _msd_data(length='angstrom', time='picosecond'):
         'residue_timeseries': np.vstack([msd_a2, msd_a2]) * l2,
         'residue_std': np.full((2, N_LAG), 0.5) * l2,
         'time': t_ps * tf,
-        'lagtimes': msd_a2 * l2,
+        'lagtimes': t_ps * tf,
+        'msd': msd_a2 * l2,
         'dimensions': 3,
         'dt': DT_PS * tf,
         'mean_box_lengths': np.array([100.0, 100.0, 100.0]) * lf,
         'units': {
             'residue_timeseries': f'{length} ** 2', 'residue_std': f'{length} ** 2',
-            'time': time, 'lagtimes': f'{length} ** 2', 'dimensions': 'dimensionless',
+            'time': time, 'lagtimes': time, 'msd': f'{length} ** 2',
+            'dimensions': 'dimensionless',
             'dt': time, 'mean_box_lengths': length,
         },
     }
+
+
+def _old_layout(data):
+    """The key layout older `martinisoup msd` wrote: all-particle MSD under 'lagtimes'."""
+    data = dict(data, units=dict(data['units']))
+    data['lagtimes'] = data.pop('msd')
+    data['units']['lagtimes'] = data['units'].pop('msd')
+    return data
 
 
 def _old_yeh_hummer(D_cm2_s, box_a, T, eta_mPas):
@@ -88,20 +98,31 @@ class TestMsdLoadDatasets:
         f = _dump(tmp_path / 'nm.pkl', _msd_data('nanometer', 'nanosecond'))
         (ds,) = msd_fitter.load_datasets([f])
         ref = _msd_data()
-        for key in ('residue_timeseries', 'residue_std', 'lagtimes', 'time', 'dt',
+        for key in ('residue_timeseries', 'residue_std', 'msd', 'lagtimes', 'time', 'dt',
                     'mean_box_lengths'):
             assert np.allclose(ds[key], ref[key]), key
         assert ds['units']['residue_timeseries'] == 'angstrom ** 2'
         assert ds['units']['dt'] == 'picosecond'
 
     def test_legacy_file_assumes_angstrom_ps_and_ignores_trajectory_units(self, tmp_path):
-        legacy = _msd_data()
+        legacy = _old_layout(_msd_data())
         del legacy['units']
         legacy['trajectory_units'] = {'length': 'nm', 'time': 'ps'}  # describes the file, not the data
         f = _dump(tmp_path / 'legacy.pkl', legacy)
         with pytest.warns(UserWarning, match="no recorded units"):
             (ds,) = msd_fitter.load_datasets([f])
         assert np.allclose(ds['residue_timeseries'], _msd_data()['residue_timeseries'])
+        # Old layout upgraded: MSD moved to 'msd', real lag times computed from dt.
+        assert np.allclose(ds['msd'], _msd_data()['msd'])
+        assert np.allclose(ds['lagtimes'], np.arange(N_LAG) * DT_PS)
+
+    def test_old_layout_with_recorded_units_is_upgraded(self, tmp_path):
+        f = _dump(tmp_path / 'old.pkl', _old_layout(_msd_data('nanometer', 'nanosecond')))
+        (ds,) = msd_fitter.load_datasets([f])
+        assert np.allclose(ds['msd'], _msd_data()['msd'])
+        assert np.allclose(ds['lagtimes'], np.arange(N_LAG) * DT_PS)
+        assert ds['units']['lagtimes'] == 'picosecond'
+        assert ds['units']['msd'] == 'angstrom ** 2'
 
 
 class TestMsdFit:
@@ -150,14 +171,20 @@ class TestMsdFit:
 # residence-fitter
 # --------------------------------------------------------------------------- #
 
-def _residence_summary(unit):
+def _residence_summary(unit, dt_ps=20.0):
+    """Summary pickle; with unit='dimensionless', durations are frame counts (dt apart)."""
     values_ps = np.array([2000.0, 5000.0, 40000.0])
-    factor = Q_(1.0, 'picosecond').to(unit).magnitude if unit != 'dimensionless' else 1.0
+    if unit == 'dimensionless':
+        values = values_ps / dt_ps
+    else:
+        values = values_ps * Q_(1.0, 'picosecond').to(unit).magnitude
     return {
-        'residences': {'ATP': (values_ps * factor, np.array([5, 3, 1]))},
+        'residences': {'ATP': (values, np.array([5, 3, 1]))},
+        'stamp': 'frame' if unit == 'dimensionless' else 'time',
+        'dt': dt_ps,
         'cutoff': 5.0,
         'units': {'residences.values': unit, 'residences.counts': 'dimensionless',
-                  'cutoff': 'angstrom'},
+                  'dt': 'picosecond', 'cutoff': 'angstrom'},
     }
 
 
@@ -187,7 +214,13 @@ class TestResidenceLoadDatasets:
             (ds,) = residence_fitter.load_datasets([_dump(tmp_path / 'old.pkl', legacy)])
         assert np.allclose(ds['ATP'][0], [2.0, 5.0, 40.0])
 
-    def test_frame_counted_durations_rejected(self, tmp_path):
-        f = _dump(tmp_path / 'frames.pkl', _residence_summary('dimensionless'))
+    def test_frame_counted_durations_converted_with_dt(self, tmp_path):
+        f = _dump(tmp_path / 'frames.pkl', _residence_summary('dimensionless', dt_ps=20.0))
+        (ds,) = residence_fitter.load_datasets([f])
+        assert np.allclose(ds['ATP'][0], [2.0, 5.0, 40.0])
+
+    def test_frame_counted_durations_without_dt_rejected(self, tmp_path):
+        data = _residence_summary('dimensionless')
+        del data['dt'], data['units']['dt']
         with pytest.raises(ValueError, match="not a time"):
-            residence_fitter.load_datasets([f])
+            residence_fitter.load_datasets([_dump(tmp_path / 'frames.pkl', data)])

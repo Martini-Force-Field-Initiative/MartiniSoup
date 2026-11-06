@@ -82,7 +82,9 @@ class TestRecordedUnitsAndQuantityParameters:
         by_frame = ResidenceTracker(met, prot, cutoff=5.0, use_time=False).run()
 
         assert by_time.results.durations == by_frame.results.durations == {'ATP': [2]}
-        assert by_time.results.units == {'durations': 'picosecond', 'cutoff': 'angstrom'}
+        assert by_time.results.units == {
+            'durations': 'picosecond', 'cutoff': 'angstrom', 'dt': 'picosecond'}
+        assert by_time.results.dt == pytest.approx(1.0)
         assert by_time.results.stamp == 'time'
         assert by_frame.results.units['durations'] == 'dimensionless'
         assert by_frame.results.stamp == 'frame'
@@ -139,3 +141,36 @@ class TestUnconvertedUniverse:
         assert results['nm'].counts == results['A'].counts
         assert results['nm'].units['cutoff_radius'] == 'nanometer'
         assert results['nm'].cutoff_radius == pytest.approx(2.0)
+
+
+class TestComputeMsd:
+
+    def test_keys_and_units(self, tmp_path):
+        """'lagtimes' holds lag times (time); the all-particle MSD is under 'msd'."""
+        from MDAnalysis.coordinates.memory import MemoryReader
+        from martinisoup.msd import compute_msd
+
+        rng = np.random.default_rng(0)
+        n, n_frames, dt = 20, 30, 10.0
+        u = mda.Universe.empty(n, n_residues=n, atom_resindex=np.arange(n), trajectory=True)
+        u.add_TopologyAttr('name', ['C1'] * n)
+        u.add_TopologyAttr('resname', ['ATP', 'GLC'] * (n // 2))
+        u.add_TopologyAttr('resid', np.arange(1, n + 1))
+        coords = 50.0 + np.cumsum(rng.normal(0, 0.5, (n_frames, n, 3)), axis=0)
+        dims = np.tile([100.0] * 3 + [90.0] * 3, (n_frames, 1))
+        u.trajectory = MemoryReader(coords, order='fac', dimensions=dims, dt=dt)
+        gro, xtc = str(tmp_path / 'w.gro'), str(tmp_path / 'w.xtc')
+        u.atoms.write(gro)
+        with mda.Writer(xtc, n_atoms=n) as w:
+            for ts in u.trajectory:
+                w.write(u.atoms)
+
+        out = compute_msd(gro, xtc, 'all', start=0, stop=n_frames)
+
+        assert np.allclose(out['lagtimes'], np.arange(n_frames) * dt)
+        assert out['msd'].shape == (n_frames,)
+        assert out['msd'][0] == pytest.approx(0.0, abs=1e-6)  # FFT round-off
+        assert out['msd'][-1] > 0
+        assert out['units']['lagtimes'] == 'picosecond'
+        assert out['units']['msd'] == 'angstrom ** 2'
+        assert out['mean_box_lengths'] == pytest.approx([100.0] * 3)  # Å, not the file's nm

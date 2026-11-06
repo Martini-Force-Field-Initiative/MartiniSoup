@@ -144,6 +144,9 @@ class ResidenceTracker(ParallelAnalysisBase):
         they are numbers of frames (dimensionless).
     results.stamp : str
         ``'time'`` or ``'frame'``, matching ``use_time``.
+    results.dt : float
+        Time between trajectory frames, in the Universe's time unit. A
+        duration counted in frames times ``dt`` is a time.
     results.cutoff : float
         The cutoff used, in the Universe's length unit.
     results.units : dict
@@ -195,10 +198,12 @@ class ResidenceTracker(ParallelAnalysisBase):
 
         self.results.stamp = 'time' if self._use_time else 'frame'
         self.results.cutoff = self._cutoff
+        self.results.dt = self._trajectory.dt
         self.results.units = {
             'durations': (unit_string(self.unit_system.time_unit)
                           if self._use_time else 'dimensionless'),
             'cutoff': unit_string(self.unit_system.length_unit),
+            'dt': unit_string(self.unit_system.time_unit),
         }
 
 

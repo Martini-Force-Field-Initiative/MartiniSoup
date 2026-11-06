@@ -32,6 +32,11 @@ def main():
                         help="Frame step size")
     parser.add_argument("--output", default="lifetimes.pkl",
                         help="Output pickle file for molecule-level results")
+    parser.add_argument("--frames", action="store_true",
+                        help="Measure durations as numbers of trajectory frames instead "
+                             "of time (default: time, in ps). The time between frames is "
+                             "saved as 'dt', so durations can still be converted to time "
+                             "(residence-fitter does this automatically).")
     parser.add_argument("--summary", default=None, metavar="FILE",
                         help="Write a summary pickle (unique residence times and their "
                              "counts) to FILE")
@@ -69,6 +74,7 @@ def main():
             step=args.step,
             n_workers=args.n_workers,
             chunk_size=args.chunk_size,
+            use_time=not args.frames,
         )
     else:
         residences = track_serial(
@@ -80,13 +86,21 @@ def main():
             start=args.start,
             stop=args.stop,
             step=args.step,
+            use_time=not args.frames,
         )
 
     # Units of the data as read (track_* read the files with default settings)
-    unit_system = UnitSystem.from_universe(mda.Universe(args.topology, args.trajectory))
+    u = mda.Universe(args.topology, args.trajectory)
+    unit_system = UnitSystem.from_universe(u)
     time_unit = unit_string(unit_system.time_unit)
+    duration_unit = 'dimensionless' if args.frames else time_unit
     cutoff = unit_system.length_magnitude(args.cutoff)
     length_unit = unit_string(unit_system.length_unit)
+    common = {
+        "stamp": "frame" if args.frames else "time",
+        "dt": u.trajectory.dt,  # time between frames
+        "cutoff": cutoff,
+    }
 
     # Save full results
     pickle_path = Path(args.output)
@@ -94,8 +108,8 @@ def main():
         pickle.dump({
             "command": command,
             "residences": residences,
-            "cutoff": cutoff,
-            "units": {"residences": time_unit, "cutoff": length_unit},
+            **common,
+            "units": {"residences": duration_unit, "dt": time_unit, "cutoff": length_unit},
         }, f)
     print(f"Saved results to {pickle_path}")
 
@@ -109,10 +123,11 @@ def main():
             pickle.dump({
                 "command": command,
                 "residences": summary,  # {moltype: (values, counts)}
-                "cutoff": cutoff,
+                **common,
                 "units": {
-                    "residences.values": time_unit,
+                    "residences.values": duration_unit,
                     "residences.counts": "dimensionless",
+                    "dt": time_unit,
                     "cutoff": length_unit,
                 },
             }, f)

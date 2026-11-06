@@ -31,8 +31,9 @@ Output pickle keys:
 - ``resnames`` — list of unique metabolite type names
 - ``residue_timeseries`` — mean MSD per type (Å²), shape ``(n_types, n_lagtimes)``
 - ``residue_std`` — standard deviation across particles (Å²), shape ``(n_types, n_lagtimes)``
-- ``time`` — absolute times corresponding to each lagtime (ps)
-- ``lagtimes`` — MSD values averaged across all particles (Å²)
+- ``time`` — absolute times of the analysed frames (ps)
+- ``lagtimes`` — lag time of each MSD point, ``index × dt`` (ps)
+- ``msd`` — MSD averaged across all particles (Å²)
 - ``dimensions`` — dimensionality factor used in the MSD calculation
 - ``dt`` — trajectory timestep (ps)
 - ``mean_box_lengths`` — box lengths ``[a, b, c]`` averaged over the analysis frames (Å)
@@ -41,6 +42,12 @@ Output pickle keys:
 Values are in the units of the data as MDAnalysis holds it, Å and ps, regardless of the
 units used in the trajectory file (e.g. nm for ``.xtc``). The ``units`` entry records this
 explicitly; see :doc:`../units`.
+
+.. note::
+   **Changed:** ``lagtimes`` now holds the lag times (ps). It previously held the MSD averaged across
+   all particles (Å²), which is now under the new ``msd`` key. ``msd-fitter`` still reads
+   files in the old layout and converts them automatically; other scripts that read
+   ``lagtimes`` should switch to ``msd``. See :doc:`../changelog`.
 
 ----
 
@@ -92,6 +99,9 @@ When ``--temperature`` is given, ``D`` is reported as ``D_PBC`` and an extra ``D
 Yeh-Hummer corrected value. All diffusion coefficients are in cm²/s.
 ``diffusion_coefficients.pkl`` holds ``command``, ``results`` and
 ``units`` (``{'results': 'centimeter ** 2 / second'}``).
+
+Files in the old layout (MSD values under ``lagtimes``, no ``msd`` key) are recognised and
+converted, with lag times rebuilt from ``dt``.
 
 Each input file is converted from its recorded units to Å and ps before fitting, so replicas
 saved in different units are combined correctly. Files from older versions without recorded

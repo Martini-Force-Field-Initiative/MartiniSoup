@@ -146,5 +146,7 @@ Units of the fitted results
   before fitting, so replicas saved in different units are combined
   correctly. Diffusion coefficients are reported in cm²/s.
 - ``residence-fitter`` converts lifetimes from their recorded units to ns.
-  It refuses durations counted in frames (from ``use_time=False`` in the
-  Python API), because these have no time unit to convert from.
+  Durations counted in frames (``residence-times --frames``, or
+  ``use_time=False`` in the Python API) are recorded as dimensionless; the
+  fitter converts them using the time between frames, ``dt``, saved in the
+  same file.
