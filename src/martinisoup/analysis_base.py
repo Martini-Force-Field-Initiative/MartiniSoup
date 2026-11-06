@@ -5,7 +5,7 @@ Subclasses get the 'serial', 'multiprocessing' and 'dask' backends of
 ``AnalysisBase.run``. The built-in 'multiprocessing' backend is swapped for
 one that dispatches exactly one computation part per pool task.
 
-Why: MDAnalysis's ``BackendMultiprocessing`` (checked against 2.10) calls
+Why: MDAnalysis's ``BackendMultiprocessing`` (checked against 2.10 and 2.11) calls
 ``Pool.map(partial(self._compute), parts)`` with the default chunksize,
 ``ceil(n_parts / (4 * n_workers))``. When that exceeds 1, several parts are
 sent in one batch and run on the *same* unpickled analysis object; each

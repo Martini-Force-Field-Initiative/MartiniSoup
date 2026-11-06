@@ -42,18 +42,10 @@ into ``n_parts`` (about ``chunk_size`` frames per part).
 
 ``ParallelAnalysisBase`` replaces MDAnalysis's stock ``multiprocessing``
 backend with one that sends each part to a worker as its own task. The stock
-backend (checked against MDAnalysis 2.10) batches several parts onto one
+backend (checked against MDAnalysis 2.10 and 2.11) batches several parts onto one
 analysis object when ``n_parts > 4 * n_workers``, which silently returns
 duplicated results. New analyses should subclass ``ParallelAnalysisBase``
 rather than ``AnalysisBase`` directly.
-
-``martinisoup.parallel`` (``map_trajectory_parallel``,
-``chunk_frame_indices``) is the previous custom engine. No analysis uses it
-any more, and it is retained only until it is removed.
-
-.. autofunction:: martinisoup.parallel.map_trajectory_parallel
-
-.. autofunction:: martinisoup.parallel.chunk_frame_indices
 
 MSD analysis
 ------------

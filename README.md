@@ -13,14 +13,26 @@ Full documentation is available at [martinisoup.readthedocs.io](https://martinis
 
 ## Installation
 
+Using [uv](https://docs.astral.sh/uv/), from the repository root:
+
 ```bash
-pip install .
+uv sync --no-dev
 ```
 
-For development:
+This installs MartiniSoup into `.venv` with the dependency versions pinned in `uv.lock`. Activate the environment (`source .venv/bin/activate`) or run commands through uv, e.g. `uv run martinisoup --help`.
+
+For development (editable install plus dev tools such as pytest):
 ```bash
-pip install -e .
+uv sync
+uv run pytest
 ```
+
+To install only the `martinisoup` command as a standalone tool:
+```bash
+uv tool install git+https://github.com/Martini-Force-Field-Initiative/MartiniSoup.git
+```
+
+See the [installation guide](https://martinisoup.readthedocs.io/en/latest/installation.html) for details.
 
 ## Usage
 

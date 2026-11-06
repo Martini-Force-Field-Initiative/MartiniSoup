@@ -11,7 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "lmfit",
-    "MDAnalysis",
+    "MDAnalysis>=2.8",  # parallel AnalysisBase backends
     "tqdm",
     "scipy",
     "freud-analysis",
@@ -22,3 +22,8 @@ dependencies = [
 
 [project.scripts]
 martinisoup = "martinisoup.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
