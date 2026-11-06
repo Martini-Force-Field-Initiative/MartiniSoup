@@ -13,7 +13,7 @@
 - Docs: `uv run --with-requirements docs/requirements.txt sphinx-build -W
   --keep-going -b html docs docs/_build/html`. Warnings are errors, as in CI.
 - CI (`.github/workflows/`): `tests.yml` runs unit and integration tests on
-  Python 3.10–3.14 for pushes to `master` and pull requests. `docs.yml` builds
+  Python 3.11–3.14 for pushes to `master` and pull requests. `docs.yml` builds
   the docs on pull requests and uploads the HTML as an artifact.
   `astral-sh/setup-uv` publishes no major tags from v8 on, so it is pinned to
   an exact release (e.g. `@v10.3.3`); `@v10` does not exist.

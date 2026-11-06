@@ -68,6 +68,9 @@ Fixed
 Compatibility
 ^^^^^^^^^^^^^
 
+Python 3.10 is no longer supported; MartiniSoup now requires Python 3.11 or
+later.
+
 Files written by earlier versions have no ``units`` entry. ``msd-fitter`` and
 ``residence-fitter`` still read them, with a warning, assuming Å and ps
 (the units MartiniSoup has always written).

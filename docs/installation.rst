@@ -4,7 +4,7 @@ Installation
 Requirements
 ------------
 
-- Python >= 3.10
+- Python >= 3.11
 - `uv <https://docs.astral.sh/uv/>`_ (see the `uv installation guide
   <https://docs.astral.sh/uv/getting-started/installation/>`_)
 - Dependencies (installed automatically): numpy, MDAnalysis >= 2.8, lmfit,

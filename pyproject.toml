@@ -7,7 +7,7 @@ name = "martinisoup"
 version = "0.1.0"
 description = "Tools for cytosolic simulation analysis"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "lmfit",

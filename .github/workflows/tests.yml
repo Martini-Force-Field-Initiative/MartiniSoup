@@ -20,10 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # The full range allowed by requires-python. uv.lock resolves
-        # different dependency versions across it (e.g. MDAnalysis 2.9 on
-        # 3.10, 2.11 on 3.11+), so each version is worth testing.
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        # The full range allowed by requires-python. uv.lock can resolve
+        # different dependency versions across it, so each version is worth
+        # testing.
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - uses: actions/checkout@v7
