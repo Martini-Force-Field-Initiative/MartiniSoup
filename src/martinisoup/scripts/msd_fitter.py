@@ -208,9 +208,11 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
                  metabolite_classes: dict | None = None) -> dict:
     """Fit MSD curves and return results.
 
-    If metabolite_classes is provided, results are grouped:
+    If metabolite_classes is provided, results are grouped::
+
         {class: {resname: array([D, D_err])}}                        (no correction)
         {class: {resname: array([D_PBC, D_err, D_corr, D_err])}}    (with correction)
+
     Otherwise, results are flat with the same array shapes.
 
     The Yeh-Hummer correction is applied when both *temperature* and *box_lengths*

@@ -42,6 +42,7 @@ Numbers without units
 from __future__ import annotations
 
 import argparse
+import re
 import warnings
 from dataclasses import dataclass
 
@@ -171,6 +172,28 @@ def _magnitude(value, unit, kind):
 # Command-line parsing
 # --------------------------------------------------------------------------- #
 
+# "<number> <unit>", e.g. "27 degC", "0.5 nm", "7.1e-4 Pa*s".
+_NUMBER_THEN_UNIT = re.compile(
+    r'^\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)\s*(.*?)\s*$'
+)
+
+
+def parse_quantity(text: str) -> pint.Quantity:
+    """
+    Parse a string such as ``"0.5 nm"`` or ``"27 degC"`` into a Quantity.
+
+    ``"<number> <unit>"`` is built as ``Q_(number, unit)`` rather than parsed
+    as an expression. Parsing it as an expression means ``number * unit``,
+    which pint versions before 0.25 reject for offset units such as degC.
+    Anything else is passed to pint's parser.
+    """
+    m = _NUMBER_THEN_UNIT.match(text)
+    if m:
+        number, unit = m.groups()
+        return Q_(float(number), unit) if unit else Q_(float(number))
+    return Q_(text)
+
+
 def quantity_arg(default_unit: str):
     """
     argparse ``type=`` for an option that takes a value with optional units.
@@ -183,7 +206,7 @@ def quantity_arg(default_unit: str):
 
     def parse(text: str) -> pint.Quantity:
         try:
-            q = Q_(text)
+            q = parse_quantity(text)
         except Exception as exc:
             raise argparse.ArgumentTypeError(f"cannot parse {text!r} as a quantity: {exc}")
         if q.unitless:

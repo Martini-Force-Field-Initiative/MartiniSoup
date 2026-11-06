@@ -88,6 +88,21 @@ class TestQuantityArg:
         q = quantity_arg('angstrom')('0.5 nm')
         assert q.to('angstrom').magnitude == pytest.approx(5.0)
 
+    @pytest.mark.parametrize("text,expected", [
+        ("0.5 nm", Q_(5.0, 'angstrom')),
+        ("0.5nm", Q_(5.0, 'angstrom')),
+        ("  50 pm ", Q_(0.5, 'angstrom')),
+        ("1e-1 nm", Q_(1.0, 'angstrom')),
+        ("-2.5 angstrom", Q_(-2.5, 'angstrom')),
+    ])
+    def test_number_unit_forms(self, text, expected):
+        assert quantity_arg('angstrom')(text).to('angstrom').magnitude == \
+            pytest.approx(expected.to('angstrom').magnitude)
+
+    def test_compound_units(self):
+        q = quantity_arg('millipascal * second')('7.103e-4 Pa*s')
+        assert q.to('millipascal * second').magnitude == pytest.approx(0.7103)
+
     def test_offset_temperature(self):
         assert quantity_arg('kelvin')('27 degC').to('kelvin').magnitude == pytest.approx(300.15)
 

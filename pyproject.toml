@@ -28,3 +28,9 @@ martinisoup = "martinisoup.cli:main"
 dev = [
     "pytest>=9.2.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: end-to-end tests that run the martinisoup commands on files on disk",
+]

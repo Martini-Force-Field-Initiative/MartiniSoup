@@ -1,6 +1,63 @@
 # MartiniSoup
 
+## Development
+
+- Set up: `uv sync` (editable install plus dev tools). Run tests with
+  `uv run pytest`.
+- Tests marked `integration` (`tests/integration/`) run the real `martinisoup`
+  commands on a small generated system written to disk: a GROMACS `.itp`
+  topology (used instead of a `.tpr`, which MDAnalysis can't write; it still
+  provides `molnums`/`moltypes`) with `.gro` and `.xtc` coordinates. Run only
+  those with `uv run pytest -m integration`, or skip them with
+  `-m "not integration"`.
+- Docs: `uv run --with-requirements docs/requirements.txt sphinx-build -W
+  --keep-going -b html docs docs/_build/html`. Warnings are errors, as in CI.
+- CI (`.github/workflows/`): `tests.yml` runs unit and integration tests on
+  Python 3.10–3.14 for pushes to `master` and pull requests. `docs.yml` builds
+  the docs on pull requests and uploads the HTML as an artifact.
+- macOS + Python 3.14: if `uv run` cannot import `martinisoup`, the editable
+  install's `.pth` file has the macOS "hidden" flag, which Python 3.14 skips.
+  Clear it with `chflags nohidden .venv/lib/python3.14/site-packages/__editable__.martinisoup-*.pth`,
+  or run with `PYTHONPATH=src`.
+
 ## Known bugs
+
+### binding-frequency only works with .tpr segment names
+
+**Status:** known, not yet fixed. `TestBindingFrequency` in
+`tests/integration/test_cli.py` is a strict `xfail` for this bug. Once the bug
+is fixed that test will pass, which a strict xfail reports as a failure, so
+remove the marker then.
+
+`index_protein_segments` (`src/martinisoup/scripts/binding_frequency.py`)
+derives protein names from segment IDs, assuming the `.tpr` pattern
+`seg_<n>_<name>`:
+
+- Segment IDs without that pattern (e.g. from a GROMACS `.itp`/`.top`,
+  where the segid is the molecule type, such as `PROT`) take the `else`
+  branch, `protein_name = parts`. That is a *list*, and it is then used as a
+  dict key, so the command crashes with `TypeError: unhashable type: 'list'`.
+- Even with a `.tpr`, a protein type listed in more than one block of
+  `[ molecules ]` gets one segment per block (`seg_0_X`, `seg_3_X`). Both map
+  to name `X`, and the later block overwrites the earlier one's mask and
+  monomer count, so contacts and normalisation silently cover only the last
+  block.
+
+Likely fix: group protein atoms by `moltypes` (available from both `.tpr` and
+`.itp`), combining all molecules of a type into one mask, with `n_monomers` =
+number of distinct `molnums` of that type. This changes how names are derived
+for `.tpr` input (moltype instead of segid suffix; normally identical), so
+note it in `docs/changelog.rst`.
+
+### residence-fitter crashes on histograms with empty bins
+
+`fit_and_plot` (`src/martinisoup/scripts/residence_fitter.py`) fits a
+`PowerLawModel` to the binned counts. If any bin in the `--bins-*` range is
+empty, the fit fails (`ValueError: The model function generated NaN values`),
+because of zero counts on log axes. With log-spaced bins this easily happens
+at long lifetimes or for rarely seen metabolites. Possible fixes: drop empty
+bins before fitting (and from the weights), or fit in log space with zeros
+excluded, and report which groups had too few populated bins to fit.
 
 ### Residence times do not track which protein a metabolite is bound to
 
