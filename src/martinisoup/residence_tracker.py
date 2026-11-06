@@ -6,6 +6,7 @@ from MDAnalysis.exceptions import NoDataError
 
 from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
 from .data_structures import BindingState, ResidenceRegistry
+from .units import unit_string
 
 
 def _moltypes(ag):
@@ -126,8 +127,9 @@ class ResidenceTracker(ParallelAnalysisBase):
         Metabolite atoms. Uses ``moltypes``/``molnums`` if present (e.g. from
         a .tpr), falling back to ``resnames``/``resindices``.
     proteins : MDAnalysis.AtomGroup
-    cutoff : float
-        Contact distance cutoff in Angstrom (default: 4.0).
+    cutoff : float or pint.Quantity
+        Contact distance cutoff (default: 4.0). A plain number is in the
+        Universe's length unit (Å for a Universe read with default settings).
     use_time : bool
         Stamp events with ``ts.time`` (True, default) or ``ts.frame``
         (False); durations are differences of these stamps.
@@ -137,7 +139,15 @@ class ResidenceTracker(ParallelAnalysisBase):
     Results
     -------
     results.durations : dict
-        {moltype_name: [durations]}
+        {moltype_name: [durations]}. With ``use_time=True`` durations are in
+        the Universe's time unit (ps by default); with ``use_time=False``
+        they are numbers of frames (dimensionless).
+    results.stamp : str
+        ``'time'`` or ``'frame'``, matching ``use_time``.
+    results.cutoff : float
+        The cutoff used, in the Universe's length unit.
+    results.units : dict
+        {result name: pint unit string}.
 
     Examples
     --------
@@ -150,7 +160,7 @@ class ResidenceTracker(ParallelAnalysisBase):
         super().__init__(metabolites.universe.trajectory, **kwargs)
         self._metabolites = metabolites
         self._proteins = proteins
-        self._cutoff = cutoff
+        self._cutoff = self.unit_system.length_magnitude(cutoff)
         self._use_time = use_time
 
         self._moltype_table, self._moltype_ids = _build_moltype_mapping(metabolites)
@@ -183,6 +193,14 @@ class ResidenceTracker(ParallelAnalysisBase):
         # The per-frame contact sets are only needed for the fold.
         del self.results['frame_contacts']
 
+        self.results.stamp = 'time' if self._use_time else 'frame'
+        self.results.cutoff = self._cutoff
+        self.results.units = {
+            'durations': (unit_string(self.unit_system.time_unit)
+                          if self._use_time else 'dimensionless'),
+            'cutoff': unit_string(self.unit_system.length_unit),
+        }
+
 
 # --------------------------------------------------------------------------- #
 # Function wrappers (used by the residence-times command)
@@ -205,10 +223,14 @@ def track_serial(
     Thin wrapper around :class:`ResidenceTracker` run with the serial
     backend.
 
+    ``cutoff`` may be a pint Quantity; a plain number is in Å (the Universe
+    is read with default settings, so its data is in Å and ps).
+
     Returns
     -------
     dict
-        {moltype_name: [durations]}
+        {moltype_name: [durations]}. Durations are in ps with
+        ``use_time=True`` (the default), or numbers of frames otherwise.
     """
     u = Universe(topology, trajectory)
     rt = ResidenceTracker(
@@ -241,10 +263,14 @@ def track_parallel(
     processes; the state machine then runs once, in order, in the main
     process, so results are identical to :func:`track_serial`.
 
+    ``cutoff`` may be a pint Quantity; a plain number is in Å (the Universe
+    is read with default settings, so its data is in Å and ps).
+
     Returns
     -------
     dict
-        {moltype_name: [durations]}
+        {moltype_name: [durations]}. Durations are in ps with
+        ``use_time=True`` (the default), or numbers of frames otherwise.
     """
     u = Universe(topology, trajectory)
     n_parts = n_parts_for_chunk_size(u.trajectory, start, stop, step, chunk_size)

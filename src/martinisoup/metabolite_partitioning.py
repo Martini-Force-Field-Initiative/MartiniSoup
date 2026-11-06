@@ -6,6 +6,7 @@ from MDAnalysis.analysis.base import ResultsGroup
 from MDAnalysis.lib.distances import capped_distance
 
 from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
+from .units import unit_string
 
 
 def analyse_frame(metabolites, proteins, box_length,
@@ -19,11 +20,13 @@ def analyse_frame(metabolites, proteins, box_length,
     metabolites : MDAnalysis.AtomGroup
     proteins : MDAnalysis.AtomGroup
     box_length : float
-        Cubic box side length in Angstrom.
+        Cubic box side length.
     r_max : float
-        Cluster neighbour cutoff in Angstrom.
+        Cluster neighbour cutoff.
     contact_cutoff : float
-        Protein contact cutoff in Angstrom.
+        Protein contact cutoff.
+
+    All lengths are plain numbers in the same unit as the atom positions.
 
     Returns
     -------
@@ -135,10 +138,13 @@ class MetabolitePartitioning(ParallelAnalysisBase):
     metabolites : MDAnalysis.AtomGroup
         Metabolite atoms. Requires ``molnums`` (e.g. from a GROMACS .tpr).
     proteins : MDAnalysis.AtomGroup
-    r_max : float
-        Cluster neighbour cutoff in Angstrom (default: 5.0).
-    contact_cutoff : float
-        Protein contact cutoff in Angstrom (default: 5.0).
+    r_max : float or pint.Quantity
+        Cluster neighbour cutoff (default: 5.0).
+    contact_cutoff : float or pint.Quantity
+        Protein contact cutoff (default: 5.0).
+
+    A plain number for either cutoff is in the Universe's length unit (Å for a
+    Universe read with default settings).
     **kwargs
         Passed to AnalysisBase (e.g. verbose).
 
@@ -148,6 +154,12 @@ class MetabolitePartitioning(ParallelAnalysisBase):
         One entry per frame, in frame order, with 'frame', 'time' and
         'fractions' keys; 'fractions' is
         {resname: {'protein_adsorbed': float, 'clustered': float, 'soluble': float}}.
+        'time' is in the Universe's time unit (ps by default).
+    results.r_max, results.contact_cutoff : float
+        The cutoffs used, in the Universe's length unit.
+    results.units : dict
+        {result name: pint unit string}, using dotted paths for per-frame
+        fields (e.g. 'frames.time').
 
     Examples
     --------
@@ -160,8 +172,8 @@ class MetabolitePartitioning(ParallelAnalysisBase):
         super().__init__(metabolites.universe.trajectory, **kwargs)
         self._metabolites = metabolites
         self._proteins = proteins
-        self._r_max = r_max
-        self._contact_cutoff = contact_cutoff
+        self._r_max = self.unit_system.length_magnitude(r_max)
+        self._contact_cutoff = self.unit_system.length_magnitude(contact_cutoff)
 
     def _prepare(self):
         self.results.frames = []
@@ -185,6 +197,18 @@ class MetabolitePartitioning(ParallelAnalysisBase):
     def _get_aggregator(self):
         return ResultsGroup(lookup={'frames': ResultsGroup.flatten_sequence})
 
+    def _conclude(self):
+        length = unit_string(self.unit_system.length_unit)
+        self.results.r_max = self._r_max
+        self.results.contact_cutoff = self._contact_cutoff
+        self.results.units = {
+            'frames.frame': 'dimensionless',
+            'frames.time': unit_string(self.unit_system.time_unit),
+            'frames.fractions': 'dimensionless',
+            'r_max': length,
+            'contact_cutoff': length,
+        }
+
 
 def analyse_trajectory(u, metabolites, proteins,
                        r_max=5.0, contact_cutoff=5.0,
@@ -202,10 +226,11 @@ def analyse_trajectory(u, metabolites, proteins,
         from ``metabolites.universe``.
     metabolites : MDAnalysis.AtomGroup
     proteins : MDAnalysis.AtomGroup
-    r_max : float
-        Cluster neighbour cutoff in Angstrom.
-    contact_cutoff : float
-        Protein contact cutoff in Angstrom.
+    r_max : float or pint.Quantity
+        Cluster neighbour cutoff.
+    contact_cutoff : float or pint.Quantity
+        Protein contact cutoff. A plain number for either cutoff is in the
+        Universe's length unit (Å for a Universe read with default settings).
     start, stop, step : int
         Frame range, as in ``u.trajectory[start:stop:step]``.
 
@@ -249,10 +274,11 @@ def analyse_trajectory_parallel(
         Paths to topology and trajectory files.
     metab_sel, prot_sel : str
         MDAnalysis selection strings for metabolites and proteins.
-    r_max : float
-        Cluster neighbour cutoff in Angstrom.
-    contact_cutoff : float
-        Protein contact cutoff in Angstrom.
+    r_max : float or pint.Quantity
+        Cluster neighbour cutoff.
+    contact_cutoff : float or pint.Quantity
+        Protein contact cutoff. A plain number for either cutoff is in the
+        Universe's length unit (Å for a Universe read with default settings).
     start, stop, step : int
         Frame range, as in ``u.trajectory[start:stop:step]``.
     n_workers : int

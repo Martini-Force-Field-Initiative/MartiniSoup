@@ -3,6 +3,7 @@ from scipy.spatial import cKDTree
 from MDAnalysis.analysis.base import ResultsGroup
 
 from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
+from .units import unit_string
 
 
 def build_nodes(atoms):
@@ -45,7 +46,8 @@ def analyse_frame(atoms, atom_molnums, nodes, r_max):
     nodes : list of dict
         Node list as returned by build_nodes.
     r_max : float
-        Contact distance cutoff in Angstrom.
+        Contact distance cutoff, as a plain number in the same length unit as
+        the atom positions.
 
     Returns
     -------
@@ -88,8 +90,9 @@ class ProteinContactNetwork(ParallelAnalysisBase):
     atoms : MDAnalysis.AtomGroup
         Protein atoms. Requires ``molnums`` (and ``moltypes`` if ``nodes`` is
         not given), e.g. from a GROMACS .tpr.
-    r_max : float
-        Contact distance cutoff in Angstrom (default: 6.0).
+    r_max : float or pint.Quantity
+        Contact distance cutoff (default: 6.0). A plain number is in the
+        Universe's length unit (Å for a Universe read with default settings).
     nodes : list of dict, optional
         Node list as returned by :func:`build_nodes`. Built from ``atoms``
         if not given.
@@ -100,9 +103,14 @@ class ProteinContactNetwork(ParallelAnalysisBase):
     -------
     results.frames : list of dict
         Node-link graph dicts with added 'frame' and 'time' keys, in frame
-        order.
+        order. 'time' is in the Universe's time unit (ps by default).
     results.nodes : list of dict
         The node list shared by every frame.
+    results.r_max : float
+        The cutoff used, in the Universe's length unit.
+    results.units : dict
+        {result name: pint unit string}, using dotted paths for per-frame
+        fields (e.g. 'frames.time').
 
     Examples
     --------
@@ -116,7 +124,7 @@ class ProteinContactNetwork(ParallelAnalysisBase):
         self._atoms = atoms
         self._atom_molnums = atoms.molnums
         self._nodes = build_nodes(atoms) if nodes is None else nodes
-        self._r_max = r_max
+        self._r_max = self.unit_system.length_magnitude(r_max)
 
     def _prepare(self):
         self.results.frames = []
@@ -134,6 +142,12 @@ class ProteinContactNetwork(ParallelAnalysisBase):
 
     def _conclude(self):
         self.results.nodes = self._nodes
+        self.results.r_max = self._r_max
+        self.results.units = {
+            'frames.frame': 'dimensionless',
+            'frames.time': unit_string(self.unit_system.time_unit),
+            'r_max': unit_string(self.unit_system.length_unit),
+        }
 
 
 def analyse_trajectory(u, atoms, nodes, r_max, start=0, stop=None, step=1):
@@ -153,8 +167,9 @@ def analyse_trajectory(u, atoms, nodes, r_max, start=0, stop=None, step=1):
         Protein atoms.
     nodes : list of dict
         Node list as returned by build_nodes.
-    r_max : float
-        Contact distance cutoff in Angstrom.
+    r_max : float or pint.Quantity
+        Contact distance cutoff. A plain number is in the Universe's length
+        unit (Å for a Universe read with default settings).
     start, stop, step : int
         Frame range, as in ``u.trajectory[start:stop:step]``.
 
@@ -194,8 +209,9 @@ def analyse_trajectory_parallel(
         Paths to topology and trajectory files.
     prot_sel : str
         MDAnalysis selection string for proteins.
-    r_max : float
-        Contact distance cutoff in Angstrom.
+    r_max : float or pint.Quantity
+        Contact distance cutoff. A plain number is in the Universe's length
+        unit (Å for a Universe read with default settings).
     start, stop, step : int
         Frame range, as in ``u.trajectory[start:stop:step]``.
     n_workers : int

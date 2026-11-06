@@ -9,6 +9,7 @@ import MDAnalysis as mda
 import numpy as np
 
 from martinisoup.contact import count_contacts, count_contacts_parallel
+from martinisoup.units import Q_, UnitSystem, quantity_arg, unit_string
 
 def index_protein_segments(proteins):
     """
@@ -59,7 +60,9 @@ def main():
     parser.add_argument("trajectory", type=str, help="Trajectory file (e.g., .xtc)")
     parser.add_argument("--protein_sel", type=str, default=None, help="MDAnalysis selection string for proteins")
     parser.add_argument("--metab_sel", type=str, default=None, help="Selection string for metabolites")
-    parser.add_argument("--cutoff", type=float, default=5.0, help="Distance cutoff in Å")
+    parser.add_argument("--cutoff", type=quantity_arg('angstrom'), default=Q_(5.0, 'angstrom'),
+                        help="Distance cutoff (default: 5 Å). A bare number is in Å; "
+                             "a value with units, e.g. '0.5 nm', is converted.")
     parser.add_argument("--parallel", action="store_true", help="Run in parallel mode")
     parser.add_argument("--n_workers", type=int, default=4, help="Number of workers for parallel mode")
     parser.add_argument("--chunk_size", type=int, default=100, help="Approximate frames per part in parallel mode")
@@ -70,6 +73,8 @@ def main():
 
     # Load universe
     u = mda.Universe(args.topology, args.trajectory)
+    unit_system = UnitSystem.from_universe(u)
+    cutoff = unit_system.length_magnitude(args.cutoff)
 
     # sort out the selections for the metabolites and proteins
     if not args.metab_sel:
@@ -95,7 +100,7 @@ def main():
             protein_selection,
             metabolite_selection,
             protein_types,
-            cutoff_radius=args.cutoff,
+            cutoff_radius=cutoff,
             n_workers=args.n_workers,
             chunk_size=args.chunk_size
         )
@@ -105,7 +110,7 @@ def main():
             proteins,
             metabolites,
             protein_types,
-            cutoff_radius=args.cutoff
+            cutoff_radius=cutoff
         )
 
     # Calculate metabolite concentrations
@@ -134,7 +139,14 @@ def main():
     results = {'command': command,
                'protein_results': protein_results,
                'n_metabolites': metabolite_counts,
-               'n_proteins': system_protein_counts}
+               'n_proteins': system_protein_counts,
+               'cutoff': cutoff,
+               'units': {
+                   'protein_results': 'dimensionless',
+                   'n_metabolites': 'dimensionless',
+                   'n_proteins': 'dimensionless',
+                   'cutoff': unit_string(unit_system.length_unit),
+               }}
 
     pickle_path = Path(args.output)
     with open(pickle_path, "wb") as f:

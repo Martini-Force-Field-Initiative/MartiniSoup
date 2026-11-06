@@ -29,16 +29,18 @@ Output pickle keys:
 
 - ``command`` — the full command used to produce the results
 - ``resnames`` — list of unique metabolite type names
-- ``residue_timeseries`` — mean MSD per type in Å², shape ``(n_types, n_lagtimes)``
-- ``residue_std`` — standard deviation across particles in Å², shape ``(n_types, n_lagtimes)``
-- ``time`` — absolute times corresponding to each lagtime
-- ``lagtimes`` — MSD values (Å²) averaged across all particles
+- ``residue_timeseries`` — mean MSD per type (Å²), shape ``(n_types, n_lagtimes)``
+- ``residue_std`` — standard deviation across particles (Å²), shape ``(n_types, n_lagtimes)``
+- ``time`` — absolute times corresponding to each lagtime (ps)
+- ``lagtimes`` — MSD values averaged across all particles (Å²)
 - ``dimensions`` — dimensionality factor used in the MSD calculation
-- ``dt`` — trajectory timestep in ps
-- ``mean_box_lengths`` — box lengths ``[a, b, c]`` in Å averaged over the analysis frames
+- ``dt`` — trajectory timestep (ps)
+- ``mean_box_lengths`` — box lengths ``[a, b, c]`` averaged over the analysis frames (Å)
+- ``units`` — ``{key: pint unit string}`` for each of the keys above
 
-All quantities are in MDAnalysis internal units (Å, ps), regardless of the units used
-in the trajectory file (e.g. nm for ``.xtc``).
+Values are in the units of the data as MDAnalysis holds it, Å and ps, regardless of the
+units used in the trajectory file (e.g. nm for ``.xtc``). The ``units`` entry records this
+explicitly; see :doc:`../units`.
 
 ----
 
@@ -76,15 +78,25 @@ as replicas and averaged before fitting.
                            Omit entirely for per-molecule results.
      --output-dir PATH     Directory for output plots and results CSV (default: current directory)
      --style PATH          Path to a matplotlib style file
-     --temperature FLOAT   Simulation temperature in K. When provided, applies the Yeh-Hummer
+     --temperature QUANTITY
+                           Simulation temperature. When provided, applies the Yeh-Hummer
                            finite-size correction using the box dimensions stored in the MSD data.
-     --eta FLOAT           Dynamic viscosity in mPa·s for the Yeh-Hummer correction
-                           (default: 0.7103 mPa·s, Martini 3 water)
+                           A bare number is in K; a value with units, e.g. "37 degC", is converted.
+     --eta QUANTITY        Dynamic viscosity for the Yeh-Hummer correction (default: 0.7103 mPa·s,
+                           Martini 3 water). A bare number is in mPa·s; a value with units,
+                           e.g. "0.00071 Pa*s", is converted.
 
 Without ``--database``, outputs ``diffusion_coefficients.csv`` with columns ``resname``, ``D``, ``D_err``.
 With ``--database``, results are grouped by class and the CSV has columns ``class``, ``resname``, ``D``, ``D_err``.
 When ``--temperature`` is given, ``D`` is reported as ``D_PBC`` and an extra ``D_corr`` column holds the
 Yeh-Hummer corrected value. All diffusion coefficients are in cm²/s.
+``diffusion_coefficients.pkl`` holds ``command``, ``results`` and
+``units`` (``{'results': 'centimeter ** 2 / second'}``).
+
+Each input file is converted from its recorded units to Å and ps before fitting, so replicas
+saved in different units are combined correctly. Files from older versions without recorded
+units are assumed to be in Å and ps (with a warning); their ``trajectory_units`` entry, which
+describes the trajectory file rather than the data, is ignored.
 
 When multiple replica files are provided, the mean MSD across replicas is computed and the uncertainty
 is propagated as ``sqrt(sum(σ_i²)) / n_replicas`` before fitting.

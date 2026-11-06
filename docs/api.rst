@@ -47,6 +47,27 @@ analysis object when ``n_parts > 4 * n_workers``, which silently returns
 duplicated results. New analyses should subclass ``ParallelAnalysisBase``
 rather than ``AnalysisBase`` directly.
 
+Units
+-----
+
+``martinisoup.units`` holds the package's single pint registry and the helpers
+every program uses. See :doc:`units` for the conventions. Each analysis class
+records ``self.unit_system`` (the units of its Universe's data) and puts the
+unit of every result in ``results.units``.
+
+.. autoclass:: martinisoup.units.UnitSystem
+   :members: from_universe, from_trajectory, length_magnitude, time_magnitude
+
+.. autofunction:: martinisoup.units.get_quantity
+
+.. autofunction:: martinisoup.units.get_units
+
+.. autofunction:: martinisoup.units.quantity_arg
+
+.. autofunction:: martinisoup.units.unit_string
+
+.. autofunction:: martinisoup.units.pint_unit_name
+
 MSD analysis
 ------------
 

@@ -5,9 +5,11 @@ import pickle
 import sys
 from pathlib import Path
 
+import MDAnalysis as mda
 import numpy as np
 
 from martinisoup.residence_tracker import track_serial, track_parallel
+from martinisoup.units import Q_, UnitSystem, quantity_arg, unit_string
 
 def main():
     parser = argparse.ArgumentParser(
@@ -19,8 +21,9 @@ def main():
                         help="MDAnalysis atom selection string for metabolites")
     parser.add_argument("--protein-selection", default=None,
                         help="MDAnalysis atom selection string for proteins")
-    parser.add_argument("--cutoff", type=float, default=5.0,
-                        help="Distance cutoff in Angstrom")
+    parser.add_argument("--cutoff", type=quantity_arg('angstrom'), default=Q_(5.0, 'angstrom'),
+                        help="Distance cutoff (default: 5 Å). A bare number is in Å; "
+                             "a value with units, e.g. '0.5 nm', is converted.")
     parser.add_argument("--start", type=int, default=0,
                         help="Start frame")
     parser.add_argument("--stop", type=int, default=None,
@@ -79,10 +82,21 @@ def main():
             step=args.step,
         )
 
+    # Units of the data as read (track_* read the files with default settings)
+    unit_system = UnitSystem.from_universe(mda.Universe(args.topology, args.trajectory))
+    time_unit = unit_string(unit_system.time_unit)
+    cutoff = unit_system.length_magnitude(args.cutoff)
+    length_unit = unit_string(unit_system.length_unit)
+
     # Save full results
     pickle_path = Path(args.output)
     with open(pickle_path, "wb") as f:
-        pickle.dump({"command": command, "residences": residences}, f)
+        pickle.dump({
+            "command": command,
+            "residences": residences,
+            "cutoff": cutoff,
+            "units": {"residences": time_unit, "cutoff": length_unit},
+        }, f)
     print(f"Saved results to {pickle_path}")
 
     if args.summary:
@@ -92,7 +106,16 @@ def main():
         }
         summary_path = Path(args.summary)
         with open(summary_path, "wb") as f:
-            pickle.dump({"command": command, "residences": summary}, f)
+            pickle.dump({
+                "command": command,
+                "residences": summary,  # {moltype: (values, counts)}
+                "cutoff": cutoff,
+                "units": {
+                    "residences.values": time_unit,
+                    "residences.counts": "dimensionless",
+                    "cutoff": length_unit,
+                },
+            }, f)
         print(f"Saved summary to {summary_path}")
 
 if __name__ == "__main__":

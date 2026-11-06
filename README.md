@@ -10,6 +10,7 @@ Full documentation is available at [martinisoup.readthedocs.io](https://martinis
 - **Residence time analysis** — tracks per-molecule binding events and extracts duration distributions for each metabolite type
 - **Mean squared displacement** — computes MSD per metabolite type using the Einstein relation, averaged across all molecules of each type
 - **Parallel trajectory processing** — optional multiprocessing support for large trajectories
+- **Consistent units** — units are read from the trajectory data, can be given on the command line (e.g. `--cutoff "0.5 nm"`; a bare number is in Å), and are recorded in every output file. See the [units guide](https://martinisoup.readthedocs.io/en/latest/units.html).
 
 ## Installation
 

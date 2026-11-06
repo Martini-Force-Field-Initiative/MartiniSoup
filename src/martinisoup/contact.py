@@ -24,8 +24,10 @@ from collections import defaultdict
 from typing import Dict, Any, List
 
 from MDAnalysis.analysis.base import ResultsGroup
+from pint import Quantity
 
 from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
+from .units import unit_string
 
 
 # --------------------------------------------------------------------------- #
@@ -119,8 +121,9 @@ class ContactCounts(ParallelAnalysisBase):
                     "mask": boolean array (len == len(proteins))
                 }
             }
-    cutoff_radius : float
-        Contact cutoff in Angstrom.
+    cutoff_radius : float or pint.Quantity
+        Contact cutoff. A plain number is in the Universe's length unit (Å for
+        a Universe read with default settings).
     **kwargs
         Passed to AnalysisBase (e.g. verbose).
 
@@ -128,6 +131,10 @@ class ContactCounts(ParallelAnalysisBase):
     -------
     results.counts : dict
         {protein_name: {resname: count}}, one entry per protein type.
+    results.cutoff_radius : float
+        The cutoff used, in the Universe's length unit.
+    results.units : dict
+        {result name: pint unit string}; counts are dimensionless.
 
     Examples
     --------
@@ -141,7 +148,7 @@ class ContactCounts(ParallelAnalysisBase):
         self._proteins = proteins
         self._metabolites = metabolites
         self._protein_types = protein_types
-        self._cutoff_radius = cutoff_radius
+        self._cutoff_radius = self.unit_system.length_magnitude(cutoff_radius)
         self._metab_resnames = np.asarray(metabolites.atoms.resnames)
         self._metab_resids = np.asarray(metabolites.atoms.resids)
 
@@ -168,6 +175,11 @@ class ContactCounts(ParallelAnalysisBase):
         # serial and parallel runs return the same keys.
         merged = self.results.counts
         self.results.counts = {p: merged.get(p, {}) for p in self._protein_types}
+        self.results.cutoff_radius = self._cutoff_radius
+        self.results.units = {
+            'counts': 'dimensionless',
+            'cutoff_radius': unit_string(self.unit_system.length_unit),
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -179,7 +191,7 @@ def count_contacts(
     proteins,
     metabolites,
     protein_types: Dict[str, Dict[str, Any]],
-    cutoff_radius: float,
+    cutoff_radius: float | Quantity,
     start: int | None = None,
     stop: int | None = None,
     step: int = 1,
@@ -198,7 +210,9 @@ def count_contacts(
     metabolites : AtomGroup
     protein_types : dict
         See :class:`ContactCounts`.
-    cutoff_radius : float
+    cutoff_radius : float or pint.Quantity
+        Contact cutoff. A plain number is in the Universe's length unit (Å
+        for a Universe read with default settings).
     start, stop, step : frame iteration parameters
 
     Returns
@@ -217,7 +231,7 @@ def count_contacts_parallel(
     prot_sel: str,
     metab_sel: str,
     protein_types: Dict[str, Dict[str, Any]],
-    cutoff_radius: float,
+    cutoff_radius: float | Quantity,
     start: int = 0,
     stop: int | None = None,
     step: int = 1,
@@ -238,7 +252,9 @@ def count_contacts_parallel(
     prot_sel, metab_sel : selection strings
         ``protein_types`` masks must index into the ``prot_sel`` selection.
     protein_types : dict (see :class:`ContactCounts`)
-    cutoff_radius : float
+    cutoff_radius : float or pint.Quantity
+        Contact cutoff. A plain number is in the Universe's length unit (Å
+        for a Universe read with default settings).
     start, stop, step : frame iteration parameters
     n_workers : int
     chunk_size : int

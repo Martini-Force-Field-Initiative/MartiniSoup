@@ -20,6 +20,8 @@ import math
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.backends import BackendMultiprocessing
 
+from .units import UnitSystem
+
 
 def n_parts_for_chunk_size(trajectory, start, stop, step, chunk_size):
     """
@@ -49,9 +51,19 @@ class ParallelAnalysisBase(AnalysisBase):
     Subclasses implement the usual ``_prepare`` / ``_single_frame`` /
     ``_conclude`` plus ``_get_aggregator``, storing everything that must
     survive a parallel run in ``self.results``.
+
+    ``self.unit_system`` holds the length/time units of the trajectory's data
+    in memory (see :class:`martinisoup.units.UnitSystem`). Subclasses convert
+    unitful parameters to it with ``self.unit_system.length_magnitude(...)``,
+    and record the units of their outputs in ``self.results.units`` (set in
+    ``_conclude``, so it is not part of the parallel aggregation).
     """
 
     _analysis_algorithm_is_parallelizable = True
+
+    def __init__(self, trajectory, **kwargs):
+        super().__init__(trajectory, **kwargs)
+        self.unit_system = UnitSystem.from_trajectory(trajectory)
 
     @classmethod
     def get_supported_backends(cls):

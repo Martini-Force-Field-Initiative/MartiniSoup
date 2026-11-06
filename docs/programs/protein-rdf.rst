@@ -17,7 +17,8 @@ are histogrammed and normalised by the mean box volume and number of protein pai
 
    options:
      --protein-selection STR   MDAnalysis selection string for protein atoms
-     --r-max FLOAT              Upper distance limit in Å (default: 100.0)
+     --r-max QUANTITY           Upper distance limit (default: 100 Å). A bare number is
+                                in Å; a value with units, e.g. "10 nm", is converted.
      --n-bins INT                Number of histogram bins (default: 200)
      --start INT                Start frame (default: 0)
      --stop INT                 Stop frame, exclusive (default: end of trajectory)
@@ -30,7 +31,10 @@ are histogrammed and normalised by the mean box volume and number of protein pai
 Output pickle keys:
 
 - ``command`` — the full command used to produce the results
-- ``r`` — bin midpoints in Å
-- ``gr`` — g(r) values
+- ``r`` — bin midpoints (Å)
+- ``gr`` — g(r) values (dimensionless)
 - ``n_proteins`` — number of protein molecules
-- ``mean_vol`` — mean box volume over analysed frames in Å³
+- ``mean_vol`` — mean box volume over analysed frames (Å³)
+- ``units`` — ``{key: pint unit string}`` for each of the keys above
+
+Every output pickle includes a ``units`` dict giving the unit of each saved value; see :doc:`../units`.

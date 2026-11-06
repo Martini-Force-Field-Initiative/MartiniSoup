@@ -14,6 +14,8 @@ from MDAnalysis import Universe
 from MDAnalysis.analysis import msd as msd_analysis
 from MDAnalysis.transformations import NoJump
 
+from .units import UnitSystem, unit_string
+
 
 def compute_msd(
     topology: str,
@@ -52,25 +54,29 @@ def compute_msd(
         Keys:
 
         - ``resnames`` — list of unique metabolite type names
-        - ``residue_timeseries`` — mean MSD per type in Å², shape ``(n_types, n_lagtimes)``
-        - ``residue_std`` — standard deviation across particles in Å², shape ``(n_types, n_lagtimes)``
-        - ``time`` — absolute times corresponding to each lagtime
-        - ``lagtimes`` — MSD values (Å²) averaged across all particles
+        - ``residue_timeseries`` — mean MSD per type (L²), shape ``(n_types, n_lagtimes)``
+        - ``residue_std`` — standard deviation across particles (L²), shape ``(n_types, n_lagtimes)``
+        - ``time`` — absolute times corresponding to each lagtime (T)
+        - ``lagtimes`` — MSD values averaged across all particles (L²)
         - ``dimensions`` — dimensionality factor used in the MSD calculation
-        - ``dt`` — trajectory timestep in ps
-        - ``mean_box_lengths`` — box lengths ``[a, b, c]`` in Å averaged over the analysis frames
+        - ``dt`` — trajectory timestep (T)
+        - ``mean_box_lengths`` — box lengths ``[a, b, c]`` averaged over the analysis frames (L)
+        - ``units`` — pint unit string for each of the keys above
 
-        All quantities are in MDAnalysis internal units (Å, ps), regardless
-        of the units used in the trajectory file.
+        L and T are the length and time units of the data as MDAnalysis holds
+        it: Å and ps, as the Universe is read with default settings,
+        regardless of the units used in the trajectory file. They are
+        recorded explicitly in ``units``.
     """
     u = Universe(topology, trajectory)
+    unit_system = UnitSystem.from_universe(u)
 
     n_frames = len(u.trajectory)
     start = start if start is not None else int(n_frames / 2)
     stop = stop if stop is not None else start + 100
     stop = min(stop, n_frames)
 
-    # Average box lengths [a, b, c] in Å (MDAnalysis internal) over the analysis
+    # Average box lengths [a, b, c] (in the Universe's length unit) over the analysis
     # frames. Done before attaching NoJump so the transformation isn't applied
     # (and reset) needlessly while reading box dimensions.
     mean_box_lengths = np.mean(
@@ -106,5 +112,14 @@ def compute_msd(
         'lagtimes': msd_data['timeseries'],
         'dimensions': MSD.dim_fac,
         'dt': u.trajectory.dt,
-        'mean_box_lengths': mean_box_lengths,  # [a, b, c] in Å
+        'mean_box_lengths': mean_box_lengths,  # [a, b, c]
+        'units': {
+            'residue_timeseries': unit_string(unit_system.length_unit ** 2),
+            'residue_std': unit_string(unit_system.length_unit ** 2),
+            'time': unit_string(unit_system.time_unit),
+            'lagtimes': unit_string(unit_system.length_unit ** 2),
+            'dimensions': 'dimensionless',
+            'dt': unit_string(unit_system.time_unit),
+            'mean_box_lengths': unit_string(unit_system.length_unit),
+        },
     }

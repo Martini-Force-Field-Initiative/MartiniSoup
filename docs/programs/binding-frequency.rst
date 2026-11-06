@@ -17,7 +17,8 @@ Results are normalised per protein monomer per metabolite copy.
    options:
      --protein_sel STR     MDAnalysis selection string for proteins
      --metab_sel STR       MDAnalysis selection string for metabolites
-     --cutoff FLOAT        Distance cutoff in Å (default: 5.0)
+     --cutoff QUANTITY     Distance cutoff (default: 5 Å). A bare number is in Å;
+                           a value with units, e.g. "0.5 nm", is converted.
      --parallel            Run in parallel mode
      --n_workers INT       Number of parallel workers (default: 4)
      --chunk_size INT      Approximate frames per parallel part (default: 100)
@@ -29,3 +30,7 @@ Output pickle keys:
 - ``protein_results`` — per-protein, per-metabolite raw and normalised contact counts
 - ``n_metabolites`` — metabolite copy numbers in the system
 - ``n_proteins`` — protein monomer counts in the system
+- ``cutoff`` — the distance cutoff used, in the length unit given in ``units`` (Å)
+- ``units`` — ``{key: pint unit string}``; all counts are ``'dimensionless'``
+
+Every output pickle includes a ``units`` dict giving the unit of each saved value; see :doc:`../units`.

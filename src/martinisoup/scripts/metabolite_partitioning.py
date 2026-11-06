@@ -8,6 +8,7 @@ from pathlib import Path
 import MDAnalysis as mda
 
 from martinisoup.metabolite_partitioning import analyse_trajectory, analyse_trajectory_parallel
+from martinisoup.units import Q_, UnitSystem, quantity_arg, unit_string
 
 
 def main():
@@ -20,10 +21,12 @@ def main():
                         help="MDAnalysis selection string for metabolites")
     parser.add_argument("--protein-selection", default=None,
                         help="MDAnalysis selection string for proteins")
-    parser.add_argument("--r-max", type=float, default=5.0,
-                        help="Cluster neighbour cutoff in Angstrom (default: 5.0)")
-    parser.add_argument("--contact-cutoff", type=float, default=5.0,
-                        help="Protein contact cutoff in Angstrom (default: 5.0)")
+    parser.add_argument("--r-max", type=quantity_arg('angstrom'), default=Q_(5.0, 'angstrom'),
+                        help="Cluster neighbour cutoff (default: 5 Å). A bare number is in Å; "
+                             "a value with units, e.g. '0.5 nm', is converted.")
+    parser.add_argument("--contact-cutoff", type=quantity_arg('angstrom'), default=Q_(5.0, 'angstrom'),
+                        help="Protein contact cutoff (default: 5 Å). A bare number is in Å; "
+                             "a value with units, e.g. '0.5 nm', is converted.")
     parser.add_argument("--start", type=int, default=0,
                         help="Start frame (default: 0)")
     parser.add_argument("--stop", type=int, default=None,
@@ -52,6 +55,9 @@ def main():
     else:
         protein_selection = args.protein_selection
 
+    u = mda.Universe(args.topology, args.trajectory)
+    unit_system = UnitSystem.from_universe(u)
+
     if args.parallel:
         results = analyse_trajectory_parallel(
             args.topology,
@@ -67,7 +73,6 @@ def main():
             chunk_size=args.chunk_size,
         )
     else:
-        u = mda.Universe(args.topology, args.trajectory)
         metabolites = u.select_atoms(metabolite_selection)
         proteins = u.select_atoms(protein_selection)
 
@@ -82,9 +87,22 @@ def main():
             step=args.step,
         )
 
+    length = unit_string(unit_system.length_unit)
     output_path = Path(args.output)
     with open(output_path, "wb") as f:
-        pickle.dump({"command": command, "results": results}, f)
+        pickle.dump({
+            "command": command,
+            "results": results,
+            "r_max": unit_system.length_magnitude(args.r_max),
+            "contact_cutoff": unit_system.length_magnitude(args.contact_cutoff),
+            "units": {
+                "results.frame": "dimensionless",
+                "results.time": unit_string(unit_system.time_unit),
+                "results.fractions": "dimensionless",
+                "r_max": length,
+                "contact_cutoff": length,
+            },
+        }, f)
     print(f"Saved results to {output_path}")
 
 

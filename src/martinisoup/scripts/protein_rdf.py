@@ -8,6 +8,7 @@ from pathlib import Path
 import MDAnalysis as mda
 
 from martinisoup.protein_rdf import compute_rdf, compute_rdf_parallel
+from martinisoup.units import Q_, quantity_arg
 
 
 def main():
@@ -18,8 +19,9 @@ def main():
     parser.add_argument("trajectory", type=str, help="Trajectory file (e.g., .xtc, .trr)")
     parser.add_argument("--protein-selection", default=None,
                         help="MDAnalysis selection string for protein atoms")
-    parser.add_argument("--r-max", type=float, default=100.0,
-                        help="Upper distance limit in Angstrom (default: 100.0)")
+    parser.add_argument("--r-max", type=quantity_arg('angstrom'), default=Q_(100.0, 'angstrom'),
+                        help="Upper distance limit (default: 100 Å). A bare number is in Å; "
+                             "a value with units, e.g. '10 nm', is converted.")
     parser.add_argument("--n-bins", type=int, default=200,
                         help="Number of histogram bins (default: 200)")
     parser.add_argument("--start", type=int, default=0,

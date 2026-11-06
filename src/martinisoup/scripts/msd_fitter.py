@@ -10,53 +10,110 @@ import matplotlib.pyplot as plt
 from lmfit.models import LinearModel
 
 from martinisoup.database import load_metabolite_classes, DATABASE_URL
+from martinisoup.units import Q_, get_units, pretty, quantity_arg, unit_string, ureg
+
+# Units the fitter works in. load_datasets converts every input file to these
+# from the units recorded in it, so replicas are always consistent.
+FIT_LENGTH = 'angstrom'
+FIT_TIME = 'picosecond'
+# Units diffusion coefficients are reported in.
+D_UNIT = 'centimeter ** 2 / second'
+
+_LENGTH_SQUARED_KEYS = ('residue_timeseries', 'residue_std', 'lagtimes')
+_TIME_KEYS = ('time', 'dt')
+_LENGTH_KEYS = ('mean_box_lengths',)
+
+# `martinisoup msd` has always written MDAnalysis internal units (Å, ps), so
+# files from before units were recorded are in these. (Their
+# 'trajectory_units' entry describes the trajectory file, not the data, and
+# must not be used.)
+_LEGACY_UNITS = {
+    **{k: 'angstrom ** 2' for k in _LENGTH_SQUARED_KEYS},
+    **{k: 'picosecond' for k in _TIME_KEYS},
+    **{k: 'angstrom' for k in _LENGTH_KEYS},
+    'dimensions': 'dimensionless',
+}
 
 
 def load_datasets(files: list[str]) -> list[dict]:
+    """
+    Load MSD pickles, converting every quantity to the fitting units.
+
+    MSDs end up in FIT_LENGTH² (Å²), times in FIT_TIME (ps) and box lengths
+    in FIT_LENGTH (Å), whatever units each file recorded; the converted
+    units are stored in each dataset's ``'units'``. Files without recorded
+    units are assumed to be in Å and ps, with a warning.
+    """
+    targets = {
+        **{k: f'{FIT_LENGTH} ** 2' for k in _LENGTH_SQUARED_KEYS},
+        **{k: FIT_TIME for k in _TIME_KEYS},
+        **{k: FIT_LENGTH for k in _LENGTH_KEYS},
+    }
     datasets = []
     for f in files:
         with open(f, 'rb') as fh:
-            datasets.append(pickle.load(fh))
+            data = pickle.load(fh)
+        units = get_units(data, legacy=_LEGACY_UNITS, source=f)
+        for key, target in targets.items():
+            if key in data:
+                data[key] = Q_(np.asarray(data[key]), units[key]).to(target).magnitude
+        data['units'] = {**units, **{k: unit_string(t) for k, t in targets.items()}}
+        datasets.append(data)
     return datasets
 
 
 def build_lagtimes(data: dict) -> np.ndarray:
+    """Lag times in the units of ``data['dt']`` (FIT_TIME after load_datasets)."""
     nframes = len(data['lagtimes'])
-    timestep = data['dt'] 
+    timestep = data['dt']
     return np.arange(nframes) * timestep
 
 
-def yeh_hummer_correction(D_cm2_s: float, box_lengths_angstrom: np.ndarray,
-                          temperature: float, eta_mPas: float) -> float:
+def yeh_hummer_correction(D, box_lengths, temperature, eta):
     """Apply the Yeh-Hummer finite-size correction to a diffusion coefficient.
 
     D_corr = D_PBC + xi * k_B * T / (6 * pi * eta * L)
 
     where L = (a * b * c)^(1/3) is the effective box length.
 
+    Each argument may be a pint Quantity in any compatible unit. Plain
+    numbers are taken to be in the units below.
+
     Parameters
     ----------
-    D_cm2_s : float
-        Raw (PBC) diffusion coefficient in cm²/s.
-    box_lengths_angstrom : array-like
-        Box edge lengths [a, b, c] in Å.
-    temperature : float
-        Simulation temperature in K.
-    eta_mPas : float
-        Dynamic viscosity in mPa·s.
+    D : float or pint.Quantity
+        Raw (PBC) diffusion coefficient (plain number: cm²/s).
+    box_lengths : array-like or pint.Quantity
+        Box edge lengths [a, b, c] (plain numbers: Å).
+    temperature : float or pint.Quantity
+        Simulation temperature (plain number: K).
+    eta : float or pint.Quantity
+        Dynamic viscosity (plain number: mPa·s).
 
     Returns
     -------
-    float
-        Corrected diffusion coefficient in cm²/s.
+    float or pint.Quantity
+        Corrected diffusion coefficient: a Quantity if ``D`` was one,
+        otherwise a plain number in cm²/s.
     """
+    def as_q(value, unit):
+        if isinstance(value, ureg.Quantity):
+            return value
+        return Q_(value, unit)
+
+    if isinstance(box_lengths, ureg.Quantity):
+        box_lengths = box_lengths.to('angstrom').magnitude
+
+    D_q = as_q(D, D_UNIT)
+    a, b, c = as_q(np.asarray(box_lengths, dtype=float), 'angstrom')
+    L = (a * b * c) ** (1 / 3)
+    # .to('kelvin') first, so offset units such as degC become absolute.
+    T = as_q(temperature, 'kelvin').to('kelvin')
     xi = 2.837298
-    k_B = 1.380649e-23  # J/K
-    a, b, c = box_lengths_angstrom
-    L_m = (a * b * c) ** (1 / 3) * 1e-10  # Å → m
-    eta_Pa_s = eta_mPas * 1e-3             # mPa·s → Pa·s
-    correction_m2_s = xi * k_B * temperature / (6 * np.pi * eta_Pa_s * L_m)
-    return D_cm2_s + correction_m2_s * 1e4  # m²/s → cm²/s
+    correction = (xi * ureg.boltzmann_constant * T
+                  / (6 * np.pi * as_q(eta, 'millipascal * second') * L))
+    D_corr = D_q + correction.to(D_q.units)
+    return D_corr if isinstance(D, ureg.Quantity) else D_corr.to(D_UNIT).magnitude
 
 
 def average_replicas(datasets: list[dict]) -> dict:
@@ -66,6 +123,9 @@ def average_replicas(datasets: list[dict]) -> dict:
     The combined uncertainty is the propagated error of that mean::
 
         combined_std = sqrt(sum(std_i ** 2)) / n_replicas
+
+    Datasets must share units, which is guaranteed for datasets returned by
+    :func:`load_datasets`.
     """
     if len(datasets) == 1:
         return datasets[0]
@@ -100,6 +160,7 @@ def average_replicas(datasets: list[dict]) -> dict:
         'resnames': resnames,
         'residue_timeseries': averaged_timeseries,
         'residue_std': averaged_std,
+        'units': ref.get('units'),
     }
 
 
@@ -107,8 +168,8 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
                  cut_start: int, cut_end: int,
                  output_dir: Path,
                  box_lengths: np.ndarray | None = None,
-                 temperature: float | None = None,
-                 eta: float = 0.7103,
+                 temperature=None,
+                 eta=0.7103,  # mPa·s (Martini 3 water); a Quantity is also accepted
                  metabolite_classes: dict | None = None) -> dict:
     """Fit MSD curves and return results.
 
@@ -118,18 +179,22 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
     Otherwise, results are flat with the same array shapes.
 
     The Yeh-Hummer correction is applied when both *temperature* and *box_lengths*
-    are provided.
+    are provided (see :func:`yeh_hummer_correction` for the units of plain
+    numbers; pint Quantities are also accepted).
 
-    MSDs are expected in MDAnalysis internal units (Å² against lag times in ps),
-    which is what ``martinisoup msd`` writes regardless of the trajectory file's
-    native units.
+    MSDs and lag times are taken to be in FIT_LENGTH² against FIT_TIME (Å²
+    against ps), which is what :func:`load_datasets` produces from any input
+    units. Diffusion coefficients are returned as plain numbers in D_UNIT
+    (cm²/s).
     """
     results = {}
 
     apply_correction = temperature is not None and box_lengths is not None
 
-    # slope is in Å²/ps (MDAnalysis internal units); 1 Å = 1e-8 cm, 1 ps = 1e-12 s
-    unit_factor = (1e-8) ** 2 / 1e-12
+    # The fitted slope is in FIT_LENGTH² / FIT_TIME; this converts it to D_UNIT.
+    slope_unit = ureg.Unit(f'{FIT_LENGTH} ** 2 / {FIT_TIME}')
+    unit_factor = Q_(1.0, slope_unit).to(D_UNIT).magnitude
+    d_label = pretty(D_UNIT)
 
     # Einstein relation: MSD = 2 * d * D * t
     einstein_factor = 2 * data.get('dimensions', 3)
@@ -153,10 +218,10 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
             D_corr = yeh_hummer_correction(D, box_lengths, temperature, eta)
             entry = np.array([D, D_err, D_corr, D_err])
             legend_title = (f"D_PBC = {D:.2e} ± {D_err:.2e}\n"
-                            f"D_corr = {D_corr:.2e} ± {D_err:.2e} cm²/s")
+                            f"D_corr = {D_corr:.2e} ± {D_err:.2e} {d_label}")
         else:
             entry = np.array([D, D_err])
-            legend_title = f"D = {D:.2e} ± {D_err:.2e} cm²/s"
+            legend_title = f"D = {D:.2e} ± {D_err:.2e} {d_label}"
 
         if metabolite_classes is not None:
             cl = metabolite_classes.get(resname, 'Unknown')
@@ -172,8 +237,8 @@ def fit_and_plot(data: dict, lagtimes: np.ndarray,
         ax.plot(x_fit, result.best_fit,
                 c='#3F615A', label='fit', lw=3, zorder=10)
         ax.set_title(resname, fontsize=20)
-        ax.set_xlabel("Time (ps)")
-        ax.set_ylabel("MSD (Å²)")
+        ax.set_xlabel(f"Time ({pretty(FIT_TIME)})")
+        ax.set_ylabel(f"MSD ({pretty(f'{FIT_LENGTH} ** 2')})")
         ax.legend(loc='upper left', title=legend_title)
         if metabolite_classes is not None:
             fig.savefig(output_dir / f"{cl}_{resname}.png", bbox_inches='tight')
@@ -194,35 +259,36 @@ def save_results(results: dict, output_dir: Path, command: str = '') -> None:
         _sample = next(iter(results.values()))
     corrected = len(_sample) == 4
 
+    u = pretty(D_UNIT)
     csv_file = output_dir / "diffusion_coefficients.csv"
     with open(csv_file, 'w') as fh:
         if grouped:
             if corrected:
-                fh.write("class,resname,D_PBC (cm²/s),D_err (cm²/s),D_corr (cm²/s)\n")
+                fh.write(f"class,resname,D_PBC ({u}),D_err ({u}),D_corr ({u})\n")
                 for cl, metabolites in results.items():
                     for resname, (D, D_err, D_corr, _) in metabolites.items():
                         fh.write(f"{cl},{resname},{D},{D_err},{D_corr}\n")
             else:
-                fh.write("class,resname,D (cm²/s),D_err (cm²/s)\n")
+                fh.write(f"class,resname,D ({u}),D_err ({u})\n")
                 for cl, metabolites in results.items():
                     for resname, (D, D_err) in metabolites.items():
                         fh.write(f"{cl},{resname},{D},{D_err}\n")
         else:
             if corrected:
-                fh.write("resname,D_PBC (cm²/s),D_err (cm²/s),D_corr (cm²/s)\n")
+                fh.write(f"resname,D_PBC ({u}),D_err ({u}),D_corr ({u})\n")
                 for resname, (D, D_err, D_corr, _) in results.items():
                     fh.write(f"{resname},{D},{D_err},{D_corr}\n")
             else:
-                fh.write("resname,D (cm²/s),D_err (cm²/s)\n")
+                fh.write(f"resname,D ({u}),D_err ({u})\n")
                 for resname, (D, D_err) in results.items():
                     fh.write(f"{resname},{D},{D_err}\n")
     print(f"Results written to {csv_file}")
 
     pkl_file = output_dir / "diffusion_coefficients.pkl"
     with open(pkl_file, 'wb') as fh:
-        pickle.dump({"command": command, 
+        pickle.dump({"command": command,
                      "results": results,
-                     "units": "cm²/s"}, fh)
+                     "units": {"results": unit_string(ureg.Unit(D_UNIT))}}, fh)
     print(f"Results written to {pkl_file}")
 
 
@@ -257,14 +323,16 @@ def parse_args():
              "Use --database alone to fetch the remote default, or supply a local CSV path."
     )
     parser.add_argument(
-        "--temperature", type=float, default=None,
-        help="Simulation temperature in K. When provided, applies the Yeh-Hummer "
-             "finite-size correction using the box dimensions stored in the MSD data."
+        "--temperature", type=quantity_arg('kelvin'), default=None,
+        help="Simulation temperature. When provided, applies the Yeh-Hummer "
+             "finite-size correction using the box dimensions stored in the MSD data. "
+             "A bare number is in K; a value with units, e.g. '37 degC', is converted."
     )
     parser.add_argument(
-        "--eta", type=float, default=0.7103,
-        help="Dynamic viscosity in mPa·s for the Yeh-Hummer correction "
-             "(default: 0.7103 mPa·s, Martini 3 water)."
+        "--eta", type=quantity_arg('millipascal * second'), default=Q_(0.7103, 'millipascal * second'),
+        help="Dynamic viscosity for the Yeh-Hummer correction "
+             "(default: 0.7103 mPa·s, Martini 3 water). A bare number is in mPa·s; "
+             "a value with units, e.g. '0.00071 Pa*s', is converted."
     )
     return parser.parse_args()
 
@@ -287,7 +355,9 @@ def main():
 
     box_lengths = None
     if args.temperature is not None:
-        box_lengths = np.mean([ds['mean_box_lengths'] for ds in datasets], axis=0)
+        # load_datasets has converted every file's box lengths to FIT_LENGTH
+        box_lengths = Q_(np.mean([ds['mean_box_lengths'] for ds in datasets], axis=0),
+                         FIT_LENGTH)
 
     data = average_replicas(datasets)
     lagtimes = build_lagtimes(datasets[0])

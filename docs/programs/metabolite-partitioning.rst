@@ -21,8 +21,10 @@ only that molecule, ``clustered`` otherwise).
    options:
      --metabolite-selection STR   MDAnalysis selection string for metabolites
      --protein-selection STR      MDAnalysis selection string for proteins
-     --r-max FLOAT                Cluster neighbour cutoff in Å (default: 5.0)
-     --contact-cutoff FLOAT       Protein contact cutoff in Å (default: 5.0)
+     --r-max QUANTITY             Cluster neighbour cutoff (default: 5 Å). A bare number
+                                  is in Å; a value with units, e.g. "0.5 nm", is converted.
+     --contact-cutoff QUANTITY    Protein contact cutoff (default: 5 Å). A bare number
+                                  is in Å; a value with units, e.g. "0.5 nm", is converted.
      --start INT                  Start frame (default: 0)
      --stop INT                   Stop frame, exclusive (default: end of trajectory)
      --step INT                   Frame stride (default: 1)
@@ -36,3 +38,9 @@ Output pickle keys:
 - ``command`` — the full command used to produce the results
 - ``results`` — list of per-frame dicts, each with ``frame``, ``time``, and ``fractions`` keys.
   ``fractions`` is ``{resname: {'protein_adsorbed': float, 'clustered': float, 'soluble': float}}``.
+  ``time`` is in ps; fractions are dimensionless.
+- ``r_max``, ``contact_cutoff`` — the cutoffs used (Å)
+- ``units`` — ``{key: pint unit string}``, with dotted paths for per-frame fields:
+  ``results.frame``, ``results.time``, ``results.fractions``, ``r_max``, ``contact_cutoff``
+
+Every output pickle includes a ``units`` dict giving the unit of each saved value; see :doc:`../units`.

@@ -3,6 +3,7 @@ from MDAnalysis.analysis.base import ResultsGroup
 from MDAnalysis.lib.distances import self_distance_array
 
 from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
+from .units import unit_string
 
 
 class ProteinRDF(ParallelAnalysisBase):
@@ -24,8 +25,9 @@ class ProteinRDF(ParallelAnalysisBase):
     ----------
     atomgroup : MDAnalysis.AtomGroup
         Protein atoms. Molecules are inferred via atomgroup.split('molecule').
-    r_max : float
-        Upper distance limit in Angstrom (default: 100.0).
+    r_max : float or pint.Quantity
+        Upper distance limit (default: 100.0). A plain number is in the
+        Universe's length unit (Å for a Universe read with default settings).
     n_bins : int
         Number of histogram bins (default: 200).
     **kwargs
@@ -33,18 +35,23 @@ class ProteinRDF(ParallelAnalysisBase):
 
     Results
     -------
+    All lengths are in the Universe's length unit L (Å by default); the
+    unit of every result is recorded in ``results.units``.
+
     results.counts : np.ndarray
         Raw pair counts per bin, summed over frames.
     results.volumes : np.ndarray
-        Box volume of each analysed frame (Angstrom^3).
+        Box volume of each analysed frame (L^3).
     results.r : np.ndarray
-        Bin midpoints (Angstrom).
+        Bin midpoints (L).
     results.gr : np.ndarray
-        g(r) values.
+        g(r) values (dimensionless).
     results.n_proteins : int
         Number of protein molecules.
     results.mean_vol : float
-        Mean box volume over analysed frames (Angstrom^3).
+        Mean box volume over analysed frames (L^3).
+    results.units : dict
+        {result name: pint unit string}.
 
     Examples
     --------
@@ -57,6 +64,7 @@ class ProteinRDF(ParallelAnalysisBase):
         super().__init__(atomgroup.universe.trajectory, **kwargs)
         self._molecules = atomgroup.split('molecule')
         self.n_proteins = len(self._molecules)
+        r_max = self.unit_system.length_magnitude(r_max)
         self.bins = np.linspace(0, r_max, n_bins + 1)
 
     def _prepare(self):
@@ -95,6 +103,16 @@ class ProteinRDF(ParallelAnalysisBase):
         self.results.n_proteins = n_proteins
         self.results.mean_vol = mean_vol
 
+        length = self.unit_system.length_unit
+        self.results.units = {
+            'counts': 'dimensionless',
+            'volumes': unit_string(length ** 3),
+            'r': unit_string(length),
+            'gr': 'dimensionless',
+            'n_proteins': 'dimensionless',
+            'mean_vol': unit_string(length ** 3),
+        }
+
 
 def _as_dict(rdf):
     return {
@@ -102,6 +120,7 @@ def _as_dict(rdf):
         'gr': rdf.results.gr,
         'n_proteins': rdf.results.n_proteins,
         'mean_vol': rdf.results.mean_vol,
+        'units': {k: rdf.results.units[k] for k in ('r', 'gr', 'n_proteins', 'mean_vol')},
     }
 
 
@@ -118,8 +137,9 @@ def compute_rdf(u, atoms, r_max=100.0, n_bins=200, start=0, stop=None, step=1):
         from ``atoms.universe``.
     atoms : MDAnalysis.AtomGroup
         Protein atoms. Molecules are inferred via atoms.split('molecule').
-    r_max : float
-        Upper distance limit in Angstrom (default: 100.0).
+    r_max : float or pint.Quantity
+        Upper distance limit (default: 100.0). A plain number is in the
+        Universe's length unit (Å for a Universe read with default settings).
     n_bins : int
         Number of histogram bins (default: 200).
     start, stop, step : int
@@ -128,10 +148,11 @@ def compute_rdf(u, atoms, r_max=100.0, n_bins=200, start=0, stop=None, step=1):
     Returns
     -------
     dict with keys:
-        'r'          : np.ndarray, bin midpoints (Angstrom)
-        'gr'         : np.ndarray, g(r) values
+        'r'          : np.ndarray, bin midpoints (length)
+        'gr'         : np.ndarray, g(r) values (dimensionless)
         'n_proteins' : int, number of protein molecules
-        'mean_vol'   : float, mean box volume over analysed frames (Angstrom^3)
+        'mean_vol'   : float, mean box volume over analysed frames (length^3)
+        'units'      : dict, pint unit string for each of the keys above
     """
     rdf = ProteinRDF(atoms, r_max=r_max, n_bins=n_bins, verbose=True)
     rdf.run(start=start, stop=stop, step=step)
@@ -164,8 +185,10 @@ def compute_rdf_parallel(
         Paths to topology and trajectory files.
     prot_sel : str
         MDAnalysis selection string for protein atoms.
-    r_max : float
-        Upper distance limit in Angstrom (default: 100.0).
+    r_max : float or pint.Quantity
+        Upper distance limit (default: 100.0). A plain number is in the
+        Universe's length unit (Å, as the Universe is read with default
+        settings).
     n_bins : int
         Number of histogram bins (default: 200).
     start, stop, step : int

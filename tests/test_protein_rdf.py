@@ -92,7 +92,11 @@ class TestProteinRDF:
         out = compute_rdf(u, u.atoms, r_max=40.0, n_bins=40)
         r_ref, gr_ref, vol_ref = _reference_rdf(u, u.atoms, 40.0, 40, 0, None, 1)
 
-        assert set(out) == {'r', 'gr', 'n_proteins', 'mean_vol'}
+        assert set(out) == {'r', 'gr', 'n_proteins', 'mean_vol', 'units'}
+        assert out['units'] == {
+            'r': 'angstrom', 'gr': 'dimensionless',
+            'n_proteins': 'dimensionless', 'mean_vol': 'angstrom ** 3',
+        }
         assert np.allclose(out['r'], r_ref)
         assert np.allclose(out['gr'], gr_ref)
         assert out['mean_vol'] == pytest.approx(vol_ref)
