@@ -25,7 +25,7 @@ are histogrammed and normalised by the mean box volume and number of protein pai
      --output PATH              Output pickle file (default: protein_rdf.pkl)
      --parallel                 Run analysis in parallel
      --n_workers INT             Number of worker processes for parallel mode (default: 4)
-     --chunk_size INT            Frames per chunk in parallel mode (default: 100)
+     --chunk_size INT            Approximate frames per part in parallel mode (default: 100)
 
 Output pickle keys:
 

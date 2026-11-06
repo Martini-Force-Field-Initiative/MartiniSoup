@@ -7,16 +7,18 @@ The public API is importable directly from the ``martinisoup`` package:
 
    from martinisoup import (
        track_serial, track_parallel, compute_msd, BindingState, ResidenceRegistry,
-       compute_rdf, compute_rdf_parallel,
+       ProteinRDF, compute_rdf, compute_rdf_parallel,
    )
 
 Parallel execution
 -------------------
 
-Every ``*_parallel`` function in the package (``compute_rdf_parallel``,
-``analyse_trajectory_parallel`` in both ``protein_clustering`` and
-``metabolite_partitioning``, ``count_contacts_parallel``, and the geometry
-pass of ``track_parallel``) is built on a single shared engine in
+``compute_rdf_parallel`` is built on MDAnalysis's own parallel
+``AnalysisBase`` machinery (see :class:`martinisoup.ProteinRDF`). The
+remaining ``*_parallel`` functions (``analyse_trajectory_parallel`` in both
+``protein_clustering`` and ``metabolite_partitioning``,
+``count_contacts_parallel``, and the geometry pass of ``track_parallel``) are
+built on a single shared engine in
 ``martinisoup.parallel``. The trajectory is split into frame-index chunks,
 each chunk is dispatched to a worker process that rebuilds the
 ``MDAnalysis.Universe`` from the topology/trajectory file paths (Universes
@@ -140,7 +142,24 @@ These functions underlie the ``protein-clustering`` command.
 Protein RDF
 -----------
 
-These functions underlie the ``protein-rdf`` command.
+These underlie the ``protein-rdf`` command. ``ProteinRDF`` is an
+``MDAnalysis.analysis.base.AnalysisBase`` subclass, so it supports the
+``serial``, ``multiprocessing`` and ``dask`` backends directly:
+
+.. code-block:: python
+
+   import MDAnalysis as mda
+   from martinisoup import ProteinRDF
+
+   u = mda.Universe("topol.tpr", "traj.xtc")
+   rdf = ProteinRDF(u.select_atoms("protein"), r_max=100.0, n_bins=200)
+   rdf.run(backend="multiprocessing", n_workers=4)
+   rdf.results.r, rdf.results.gr
+
+``compute_rdf`` and ``compute_rdf_parallel`` are thin wrappers that return
+the results as a plain dict.
+
+.. autoclass:: martinisoup.ProteinRDF
 
 .. autofunction:: martinisoup.compute_rdf
 
