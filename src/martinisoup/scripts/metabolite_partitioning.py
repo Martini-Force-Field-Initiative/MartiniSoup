@@ -37,7 +37,7 @@ def main():
     parser.add_argument("--n_workers", type=int, default=4,
                         help="Number of worker processes for parallel mode (default: 4)")
     parser.add_argument("--chunk_size", type=int, default=100,
-                        help="Frames per chunk in parallel mode (default: 100)")
+                        help="Approximate frames per part in parallel mode (default: 100)")
 
     args = parser.parse_args()
     command = ' '.join(sys.argv)

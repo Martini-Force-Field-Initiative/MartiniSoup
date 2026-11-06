@@ -29,7 +29,7 @@ only that molecule, ``clustered`` otherwise).
      --output PATH                Output pickle file (default: cluster_states.pkl)
      --parallel                   Run analysis in parallel
      --n_workers INT              Number of worker processes for parallel mode (default: 4)
-     --chunk_size INT             Frames per chunk in parallel mode (default: 100)
+     --chunk_size INT             Approximate frames per part in parallel mode (default: 100)
 
 Output pickle keys:
 

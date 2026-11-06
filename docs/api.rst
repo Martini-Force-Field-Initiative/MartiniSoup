@@ -13,19 +13,19 @@ The public API is importable directly from the ``martinisoup`` package:
 Parallel execution
 -------------------
 
-``compute_rdf_parallel``, ``count_contacts_parallel`` and
-``protein_clustering.analyse_trajectory_parallel`` are built on MDAnalysis's
-own parallel ``AnalysisBase`` machinery, via
+``compute_rdf_parallel``, ``count_contacts_parallel`` and the
+``analyse_trajectory_parallel`` functions in ``protein_clustering`` and
+``metabolite_partitioning`` are built on MDAnalysis's own parallel
+``AnalysisBase`` machinery, via
 ``martinisoup.analysis_base.ParallelAnalysisBase`` (see
 :class:`martinisoup.ProteinRDF`,
-:class:`martinisoup.contact.ContactCounts` and
-:class:`martinisoup.protein_clustering.ProteinContactNetwork`). ``ParallelAnalysisBase``
+:class:`martinisoup.contact.ContactCounts`,
+:class:`martinisoup.protein_clustering.ProteinContactNetwork` and
+:class:`martinisoup.metabolite_partitioning.MetabolitePartitioning`). ``ParallelAnalysisBase``
 replaces MDAnalysis's stock ``multiprocessing`` backend with one that sends
 each frame range to a worker as its own task. The stock backend returns
-duplicated results when ``n_parts > 4 * n_workers``. The remaining
-``*_parallel`` functions (``metabolite_partitioning.analyse_trajectory_parallel``
-and the geometry pass of ``track_parallel``) are
-built on a single shared engine in
+duplicated results when ``n_parts > 4 * n_workers``. The geometry pass of
+``track_parallel`` is still built on a single shared engine in
 ``martinisoup.parallel``. The trajectory is split into frame-index chunks,
 each chunk is dispatched to a worker process that rebuilds the
 ``MDAnalysis.Universe`` from the topology/trajectory file paths (Universes
@@ -133,7 +133,13 @@ Database
 Metabolite partitioning
 ------------------------
 
-These functions underlie the ``metabolite-partitioning`` command.
+These underlie the ``metabolite-partitioning`` command.
+``MetabolitePartitioning`` is an ``MDAnalysis.analysis.base.AnalysisBase``
+subclass supporting the ``serial``, ``multiprocessing`` and ``dask``
+backends; ``analyse_trajectory`` and ``analyse_trajectory_parallel`` are thin
+wrappers around it that return ``results.frames``.
+
+.. autoclass:: martinisoup.metabolite_partitioning.MetabolitePartitioning
 
 .. autofunction:: martinisoup.metabolite_partitioning.analyse_frame
 

@@ -2,10 +2,10 @@ from collections import defaultdict
 
 import freud
 import numpy as np
+from MDAnalysis.analysis.base import ResultsGroup
 from MDAnalysis.lib.distances import capped_distance
-from tqdm import tqdm
 
-from .parallel import map_trajectory_parallel
+from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
 
 
 def analyse_frame(metabolites, proteins, box_length,
@@ -120,72 +120,106 @@ def _normalize(counts):
     return out
 
 
+class MetabolitePartitioning(ParallelAnalysisBase):
+    """
+    Per-frame partitioning of metabolites into protein_adsorbed, clustered
+    and soluble states.
+
+    For every frame, each metabolite residue is classified by
+    :func:`analyse_frame` and the per-resname counts are normalised to
+    fractions. In a parallel run each part classifies its own frames and the
+    parts' lists are concatenated in frame order.
+
+    Parameters
+    ----------
+    metabolites : MDAnalysis.AtomGroup
+        Metabolite atoms. Requires ``molnums`` (e.g. from a GROMACS .tpr).
+    proteins : MDAnalysis.AtomGroup
+    r_max : float
+        Cluster neighbour cutoff in Angstrom (default: 5.0).
+    contact_cutoff : float
+        Protein contact cutoff in Angstrom (default: 5.0).
+    **kwargs
+        Passed to AnalysisBase (e.g. verbose).
+
+    Results
+    -------
+    results.frames : list of dict
+        One entry per frame, in frame order, with 'frame', 'time' and
+        'fractions' keys; 'fractions' is
+        {resname: {'protein_adsorbed': float, 'clustered': float, 'soluble': float}}.
+
+    Examples
+    --------
+    >>> mp = MetabolitePartitioning(metabolites, proteins, r_max=5.0)
+    >>> mp.run(backend='multiprocessing', n_workers=4)
+    >>> mp.results.frames
+    """
+
+    def __init__(self, metabolites, proteins, r_max=5.0, contact_cutoff=5.0, **kwargs):
+        super().__init__(metabolites.universe.trajectory, **kwargs)
+        self._metabolites = metabolites
+        self._proteins = proteins
+        self._r_max = r_max
+        self._contact_cutoff = contact_cutoff
+
+    def _prepare(self):
+        self.results.frames = []
+
+    def _single_frame(self):
+        counts = analyse_frame(
+            self._metabolites,
+            self._proteins,
+            box_length=self._ts.dimensions[0],
+            r_max=self._r_max,
+            contact_cutoff=self._contact_cutoff,
+        )
+        # _normalize returns plain dicts; analyse_frame's defaultdict (built
+        # with a lambda) could not be pickled back from a worker.
+        self.results.frames.append({
+            'frame': self._ts.frame,
+            'time': self._ts.time,
+            'fractions': _normalize(counts),
+        })
+
+    def _get_aggregator(self):
+        return ResultsGroup(lookup={'frames': ResultsGroup.flatten_sequence})
+
+
 def analyse_trajectory(u, metabolites, proteins,
                        r_max=5.0, contact_cutoff=5.0,
                        start=0, stop=None, step=1):
     """
-    Run per-frame cluster state analysis over a trajectory slice.
+    Run per-frame cluster state analysis over a trajectory slice (serial).
+
+    Thin wrapper around :class:`MetabolitePartitioning` run with the serial
+    backend.
 
     Parameters
     ----------
     u : MDAnalysis.Universe
+        Unused beyond consistency with other analyses; the trajectory is taken
+        from ``metabolites.universe``.
     metabolites : MDAnalysis.AtomGroup
     proteins : MDAnalysis.AtomGroup
     r_max : float
         Cluster neighbour cutoff in Angstrom.
     contact_cutoff : float
         Protein contact cutoff in Angstrom.
-    start : int
-        First frame index.
-    stop : int or None
-        Last frame index (exclusive). None means end of trajectory.
-    step : int
-        Frame stride.
+    start, stop, step : int
+        Frame range, as in ``u.trajectory[start:stop:step]``.
 
     Returns
     -------
     list of dict
-        Each entry has 'frame', 'time', and 'fractions' keys.
+        Each entry has 'frame', 'time', and 'fractions' keys, in frame order.
     """
-    results = []
-    for ts in tqdm(u.trajectory[start:stop:step]):
-        counts = analyse_frame(
-            metabolites,
-            proteins,
-            box_length=u.dimensions[0],
-            r_max=r_max,
-            contact_cutoff=contact_cutoff,
-        )
-        results.append({
-            'frame': ts.frame,
-            'time': ts.time,
-            'fractions': _normalize(counts),
-        })
-    return results
-
-
-# --------------------------------------------------------------------------- #
-# Parallel version (multiprocessing)
-# --------------------------------------------------------------------------- #
-
-def _partitioning_setup(u, metab_sel, prot_sel, r_max, contact_cutoff):
-    """Build the per-worker context: metabolite/protein atoms and cutoffs."""
-    metabolites = u.select_atoms(metab_sel)
-    proteins = u.select_atoms(prot_sel)
-    return metabolites, proteins, r_max, contact_cutoff
-
-
-def _partitioning_per_frame(u, context, ts):
-    """Classify one frame's metabolites."""
-    metabolites, proteins, r_max, contact_cutoff = context
-    counts = analyse_frame(
-        metabolites,
-        proteins,
-        box_length=u.dimensions[0],
-        r_max=r_max,
-        contact_cutoff=contact_cutoff,
+    mp = MetabolitePartitioning(
+        metabolites, proteins, r_max=r_max, contact_cutoff=contact_cutoff,
+        verbose=True,
     )
-    return {'frame': ts.frame, 'time': ts.time, 'fractions': _normalize(counts)}
+    mp.run(start=start, stop=stop, step=step)
+    return mp.results.frames
 
 
 def analyse_trajectory_parallel(
@@ -204,9 +238,10 @@ def analyse_trajectory_parallel(
     """
     Parallel per-frame cluster state analysis.
 
-    Each frame is classified independently, so the trajectory slice is split
-    into chunks and dispatched to worker processes. Results are collected and
-    returned sorted by frame index.
+    Thin wrapper around :class:`MetabolitePartitioning` run with MDAnalysis's
+    ``multiprocessing`` backend. The frame range is split into contiguous
+    parts of roughly ``chunk_size`` frames, distributed over ``n_workers``
+    processes.
 
     Parameters
     ----------
@@ -218,28 +253,29 @@ def analyse_trajectory_parallel(
         Cluster neighbour cutoff in Angstrom.
     contact_cutoff : float
         Protein contact cutoff in Angstrom.
-    start : int
-        First frame index.
-    stop : int or None
-        Last frame index (exclusive). None means end of trajectory.
-    step : int
-        Frame stride.
+    start, stop, step : int
+        Frame range, as in ``u.trajectory[start:stop:step]``.
     n_workers : int
         Number of worker processes.
     chunk_size : int
-        Frames per chunk.
+        Approximate frames per part.
 
     Returns
     -------
     list of dict
-        Each entry has 'frame', 'time', and 'fractions' keys, sorted by frame.
+        Each entry has 'frame', 'time', and 'fractions' keys, in frame order.
     """
-    all_results = map_trajectory_parallel(
-        topology, trajectory, _partitioning_setup, _partitioning_per_frame,
-        setup_args=(metab_sel, prot_sel, r_max, contact_cutoff),
-        start=start, stop=stop, step=step,
-        n_workers=n_workers, chunk_size=chunk_size,
-        desc="Analysing trajectory (parallel)",
+    import MDAnalysis as mda
+
+    u = mda.Universe(topology, trajectory)
+    n_parts = n_parts_for_chunk_size(u.trajectory, start, stop, step, chunk_size)
+
+    mp = MetabolitePartitioning(
+        u.select_atoms(metab_sel), u.select_atoms(prot_sel),
+        r_max=r_max, contact_cutoff=contact_cutoff,
     )
-    all_results.sort(key=lambda x: x['frame'])
-    return all_results
+    mp.run(
+        start=start, stop=stop, step=step,
+        backend='multiprocessing', n_workers=n_workers, n_parts=n_parts,
+    )
+    return mp.results.frames
