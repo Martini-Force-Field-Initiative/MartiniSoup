@@ -50,6 +50,13 @@ New
 Fixed
 ^^^^^
 
+- Parallel runs (``--parallel``, ``backend="multiprocessing"``) could crash
+  with a segmentation fault, or hang, on Linux with Python 3.13 or earlier,
+  where worker processes were started by forking. Workers are now always
+  started with ``spawn``. Python scripts that run a parallel analysis must do
+  so under an ``if __name__ == "__main__":`` guard on every platform (this was
+  already required on macOS and Windows).
+
 - ``msd-fitter`` interpreted MSDs using the trajectory file's units (e.g. nm
   for ``.xtc``) although the data was in Å, giving diffusion coefficients
   100 times too large for ``.xtc`` trajectories. In addition: fit weights

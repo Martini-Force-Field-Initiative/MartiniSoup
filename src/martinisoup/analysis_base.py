@@ -3,7 +3,8 @@ Shared base class for martinisoup analyses built on MDAnalysis's AnalysisBase.
 
 Subclasses get the 'serial', 'multiprocessing' and 'dask' backends of
 ``AnalysisBase.run``. The built-in 'multiprocessing' backend is swapped for
-one that dispatches exactly one computation part per pool task.
+one that (1) dispatches exactly one computation part per pool task and
+(2) always starts worker processes with the 'spawn' method.
 
 Why: MDAnalysis's ``BackendMultiprocessing`` (checked against 2.10 and 2.11) calls
 ``Pool.map(partial(self._compute), parts)`` with the default chunksize,
@@ -13,9 +14,22 @@ sent in one batch and run on the *same* unpickled analysis object; each
 in the batch comes back holding the last part's results. Results are silently
 wrong whenever ``n_parts > 4 * n_workers``. Forcing ``chunksize=1`` gives each
 part its own copy of the object.
+
+Why spawn: ``multiprocessing.Pool()`` uses the platform default start method,
+which is 'fork' on Linux before Python 3.14. A forked worker inherits a copy
+of the parent process: its open trajectory readers (with C-level file
+handles) and its background threads (e.g. tqdm's monitor thread). Garbage
+collecting an inherited MDAnalysis XDR reader in a worker segfaulted in CI
+(Linux, Python 3.10), and forcing 'fork' on macOS deadlocks the pool. 'spawn'
+starts each worker as a fresh interpreter, which is the default on macOS and
+Windows and avoids both problems. Workers receive everything they need by
+pickling, which AnalysisBase already relies on. As with any spawn-based
+multiprocessing, a script that runs a parallel analysis at import time must
+guard it with ``if __name__ == "__main__":``.
 """
 
 import math
+import multiprocessing
 
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.backends import BackendMultiprocessing
@@ -34,13 +48,19 @@ def n_parts_for_chunk_size(trajectory, start, stop, step, chunk_size):
     return max(1, math.ceil(n_frames / chunk_size))
 
 
+# Start method for worker processes; see the module docstring.
+START_METHOD = 'spawn'
+
+
 class _BackendMultiprocessingOnePartPerTask(BackendMultiprocessing):
-    """``BackendMultiprocessing`` with ``chunksize=1`` (see module docstring)."""
+    """
+    ``BackendMultiprocessing`` with ``chunksize=1`` and spawned workers
+    (see module docstring).
+    """
 
     def apply(self, func, computations):
-        from multiprocessing import Pool
-
-        with Pool(processes=self.n_workers) as pool:
+        ctx = multiprocessing.get_context(START_METHOD)
+        with ctx.Pool(processes=self.n_workers) as pool:
             return pool.map(func, computations, chunksize=1)
 
 

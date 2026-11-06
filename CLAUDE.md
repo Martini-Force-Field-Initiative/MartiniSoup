@@ -15,6 +15,14 @@
 - CI (`.github/workflows/`): `tests.yml` runs unit and integration tests on
   Python 3.10–3.14 for pushes to `master` and pull requests. `docs.yml` builds
   the docs on pull requests and uploads the HTML as an artifact.
+  `astral-sh/setup-uv` publishes no major tags from v8 on, so it is pinned to
+  an exact release (e.g. `@v10.3.3`); `@v10` does not exist.
+- Parallel workers are always started with `spawn`
+  (`analysis_base.START_METHOD`), never `fork`. Forked workers inherit open
+  MDAnalysis readers and threads; this segfaulted in CI (Linux, Python 3.10),
+  and forcing `fork` on macOS deadlocks. `tests/test_analysis_base.py` guards
+  this. Any script that starts parallel work needs an
+  `if __name__ == "__main__":` guard, including throwaway debugging scripts.
 - macOS + Python 3.14: if `uv run` cannot import `martinisoup`, the editable
   install's `.pth` file has the macOS "hidden" flag, which Python 3.14 skips.
   Clear it with `chflags nohidden .venv/lib/python3.14/site-packages/__editable__.martinisoup-*.pth`,

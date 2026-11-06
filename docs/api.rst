@@ -47,6 +47,27 @@ analysis object when ``n_parts > 4 * n_workers``, which silently returns
 duplicated results. New analyses should subclass ``ParallelAnalysisBase``
 rather than ``AnalysisBase`` directly.
 
+Worker processes are always started with the ``spawn`` method, on every
+platform. (``fork``, the Linux default before Python 3.14, copies the parent
+process into each worker, including open trajectory readers and background
+threads, which can crash or hang the workers.) As with any spawn-based
+multiprocessing, a script that runs a parallel analysis must do so under an
+``if __name__ == "__main__":`` guard:
+
+.. code-block:: python
+
+   import MDAnalysis as mda
+   from martinisoup import ProteinRDF
+
+   def main():
+       u = mda.Universe("topol.tpr", "traj.xtc")
+       ProteinRDF(u.select_atoms("protein")).run(backend="multiprocessing", n_workers=4)
+
+   if __name__ == "__main__":
+       main()
+
+The ``martinisoup`` commands already do this.
+
 Units
 -----
 
