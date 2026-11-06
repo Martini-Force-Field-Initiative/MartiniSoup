@@ -20,8 +20,9 @@ def main():
                         help="Start frame (default: first frame of second half of trajectory)")
     parser.add_argument("--stop", type=int, default=None,
                         help="Stop frame (default: start + 100)")
-    parser.add_argument("--fft", action="store_true", default=True,
-                        help="Use FFT algorithm for MSD calculation (default: True)")
+    parser.add_argument("--fft", action=argparse.BooleanOptionalAction, default=True,
+                        help="Use FFT algorithm for MSD calculation (default: True; "
+                             "disable with --no-fft)")
     parser.add_argument("--output", type=str, default="msd.pkl",
                         help="Output pickle file (default: msd.pkl)")
 
