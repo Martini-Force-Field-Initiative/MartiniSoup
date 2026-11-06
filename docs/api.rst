@@ -13,11 +13,17 @@ The public API is importable directly from the ``martinisoup`` package:
 Parallel execution
 -------------------
 
-``compute_rdf_parallel`` is built on MDAnalysis's own parallel
-``AnalysisBase`` machinery (see :class:`martinisoup.ProteinRDF`). The
-remaining ``*_parallel`` functions (``analyse_trajectory_parallel`` in both
-``protein_clustering`` and ``metabolite_partitioning``,
-``count_contacts_parallel``, and the geometry pass of ``track_parallel``) are
+``compute_rdf_parallel`` and ``count_contacts_parallel`` are built on
+MDAnalysis's own parallel ``AnalysisBase`` machinery, via
+``martinisoup.analysis_base.ParallelAnalysisBase`` (see
+:class:`martinisoup.ProteinRDF` and
+:class:`martinisoup.contact.ContactCounts`). ``ParallelAnalysisBase``
+replaces MDAnalysis's stock ``multiprocessing`` backend with one that sends
+each frame range to a worker as its own task. The stock backend returns
+duplicated results when ``n_parts > 4 * n_workers``. The remaining
+``*_parallel`` functions (``analyse_trajectory_parallel`` in both
+``protein_clustering`` and ``metabolite_partitioning``, and the geometry pass
+of ``track_parallel``) are
 built on a single shared engine in
 ``martinisoup.parallel``. The trajectory is split into frame-index chunks,
 each chunk is dispatched to a worker process that rebuilds the
@@ -98,11 +104,19 @@ Data structures
 Contact analysis
 ----------------
 
-These functions underlie the ``binding-frequency`` command and can be called
-directly for custom workflows. ``count_contacts_parallel`` accepts the same
+These underlie the ``binding-frequency`` command and can be called directly
+for custom workflows. ``ContactCounts`` is an
+``MDAnalysis.analysis.base.AnalysisBase`` subclass supporting the ``serial``,
+``multiprocessing`` and ``dask`` backends; ``count_contacts`` and
+``count_contacts_parallel`` are thin wrappers around it that return
+``results.counts``. Every protein type in ``protein_types`` appears in the
+result, with an empty dict if it made no contacts. ``count_contacts_parallel``
+accepts the same
 ``start``/``stop``/``step`` frame-range parameters as ``count_contacts``
 (previously it always processed the whole trajectory); the CLI does not yet
 expose these for ``binding-frequency``.
+
+.. autoclass:: martinisoup.contact.ContactCounts
 
 .. autofunction:: martinisoup.contact.count_contacts
 

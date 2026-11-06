@@ -1,7 +1,9 @@
 import pytest
 import numpy as np
 import MDAnalysis as mda
-from martinisoup.contact import _merge_counts, count_contacts, count_contacts_parallel
+from martinisoup.contact import (
+    ContactCounts, _merge_counts, count_contacts, count_contacts_parallel,
+)
 
 
 def _make_universe(protein_positions, metabolite_positions,
@@ -256,3 +258,45 @@ class TestCountContactsParallel:
             n_workers=2, chunk_size=3,
         )
         assert serial == parallel
+
+
+class TestContactCounts:
+
+    @pytest.mark.parametrize("n_workers,n_parts", [(2, 2), (2, 9), (2, 24)])
+    def test_multiprocessing_matches_serial(self, n_workers, n_parts):
+        """
+        n_parts > 4 * n_workers is the regression case for the stock
+        MDAnalysis multiprocessing backend (see martinisoup.analysis_base).
+        """
+        u = _make_multiframe_universe(53, n_prot=3, n_met=5)
+        proteins = u.select_atoms('resname ALA')
+        metabolites = u.select_atoms('resname ATP')
+        protein_types = _all_protein_types(proteins)
+
+        serial = ContactCounts(proteins, metabolites, protein_types, 20.0).run(
+            start=3, stop=50, step=2)
+        parallel = ContactCounts(proteins, metabolites, protein_types, 20.0).run(
+            start=3, stop=50, step=2,
+            backend='multiprocessing', n_workers=n_workers, n_parts=n_parts,
+        )
+        assert serial.results.counts['PROT']['ATP'] > 0
+        assert parallel.results.counts == serial.results.counts
+
+    def test_protein_type_without_contacts_keeps_empty_entry(self):
+        """Serial and parallel runs both report every protein type."""
+        u = _make_multiframe_universe(12, n_prot=3, n_met=3)
+        proteins = u.select_atoms('resname ALA')
+        metabolites = u.select_atoms('resname ATP')
+        protein_types = {
+            'HIT': {'mask': np.array([True, True, True]), 'n_monomers': 1},
+            'EMPTY': {'mask': np.array([False, False, False]), 'n_monomers': 1},
+        }
+
+        serial = ContactCounts(proteins, metabolites, protein_types, 30.0).run()
+        parallel = ContactCounts(proteins, metabolites, protein_types, 30.0).run(
+            backend='multiprocessing', n_workers=2, n_parts=3)
+
+        for result in (serial, parallel):
+            assert set(result.results.counts) == {'HIT', 'EMPTY'}
+            assert result.results.counts['EMPTY'] == {}
+        assert parallel.results.counts == serial.results.counts

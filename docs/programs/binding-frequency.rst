@@ -20,7 +20,7 @@ Results are normalised per protein monomer per metabolite copy.
      --cutoff FLOAT        Distance cutoff in Å (default: 5.0)
      --parallel            Run in parallel mode
      --n_workers INT       Number of parallel workers (default: 4)
-     --chunk_size INT      Frames per parallel chunk (default: 100)
+     --chunk_size INT      Approximate frames per parallel part (default: 100)
      --output PATH         Path to save results as a pickle file (default: binding.pkl)
 
 Output pickle keys:

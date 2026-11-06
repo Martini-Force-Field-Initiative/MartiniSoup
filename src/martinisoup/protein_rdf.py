@@ -1,10 +1,8 @@
-import math
-
 import numpy as np
 from MDAnalysis.analysis.base import ResultsGroup
 from MDAnalysis.lib.distances import self_distance_array
 
-from .analysis_base import ParallelAnalysisBase
+from .analysis_base import ParallelAnalysisBase, n_parts_for_chunk_size
 
 
 class ProteinRDF(ParallelAnalysisBase):
@@ -185,8 +183,7 @@ def compute_rdf_parallel(
     import MDAnalysis as mda
 
     u = mda.Universe(topology, trajectory)
-    n_frames = len(u.trajectory[start:stop:step])
-    n_parts = max(1, math.ceil(n_frames / chunk_size))
+    n_parts = n_parts_for_chunk_size(u.trajectory, start, stop, step, chunk_size)
 
     rdf = ProteinRDF(u.select_atoms(prot_sel), r_max=r_max, n_bins=n_bins)
     rdf.run(

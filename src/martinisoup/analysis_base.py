@@ -15,8 +15,21 @@ wrong whenever ``n_parts > 4 * n_workers``. Forcing ``chunksize=1`` gives each
 part its own copy of the object.
 """
 
+import math
+
 from MDAnalysis.analysis.base import AnalysisBase
 from MDAnalysis.analysis.backends import BackendMultiprocessing
+
+
+def n_parts_for_chunk_size(trajectory, start, stop, step, chunk_size):
+    """
+    Number of parts so each holds roughly ``chunk_size`` frames.
+
+    Lets the ``*_parallel`` wrappers keep their ``chunk_size`` argument while
+    passing ``n_parts`` to ``AnalysisBase.run``.
+    """
+    n_frames = len(trajectory[start:stop:step])
+    return max(1, math.ceil(n_frames / chunk_size))
 
 
 class _BackendMultiprocessingOnePartPerTask(BackendMultiprocessing):
